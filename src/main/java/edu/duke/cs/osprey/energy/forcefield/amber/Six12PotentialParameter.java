@@ -1,4 +1,6 @@
 package edu.duke.cs.osprey.energy.forcefield.amber;
 
-public record Six12PotentialParameter(String LABEL, String KINDNB) {
+import java.io.Serializable;
+
+public record Six12PotentialParameter(String LABEL, String KINDNB) implements Serializable {
 }
