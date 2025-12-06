@@ -39,6 +39,7 @@ import one.util.streamex.StreamEx;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,9 +50,11 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class ForcefieldFileParser {
+public class ForcefieldFileParser implements Serializable {
 
-    private final InputStream parmFile;
+    private static final long serialVersionUID = 1L;
+
+    private transient final InputStream parmFile;
 
     private record TwoTuple<T>(T head, T tail) {
     }
@@ -60,7 +63,7 @@ public class ForcefieldFileParser {
     // any dihedrals in the system involving the atoms "JPT" and "KPT" are assigned the same parameters.
     public static final AtomSymbolAndMass WildcardAtom = new AtomSymbolAndMass("X", 0);
     public static final AtomSymbolAndMass UnmatchedAtom = new AtomSymbolAndMass("?", 0);
-    private final Path frcmod;
+    private transient final Path frcmod;
 
     public ForcefieldFileParser(InputStream parmFile) {
         this(parmFile, null);
