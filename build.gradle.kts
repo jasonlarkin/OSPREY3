@@ -223,8 +223,11 @@ tasks.withType<Test> {
 	maxHeapSize = "2g"
 	useJUnitPlatform()
     failFast = true
+	// Increase stack size for deep object copying (EPIC, SAPE initialization)
+	// Default 1MB insufficient for complex molecular structures
 	// method call appends additional arguments for the JVM
 	jvmArgs(Jvm.moduleArgs)
+	jvmArgs("-Xss8m")
 
 	testLogging {
 		setExceptionFormat("full")

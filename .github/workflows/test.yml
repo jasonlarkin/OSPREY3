@@ -62,12 +62,20 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Test Execution Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        grep -E "(PASSED|FAILED|BUILD)" test-output.log | head -20 >> $GITHUB_STEP_SUMMARY || echo "No test results found" >> $GITHUB_STEP_SUMMARY
+        grep -E "(PASSED|FAILED|SKIPPED|BUILD)" test-output.log | head -30 >> $GITHUB_STEP_SUMMARY || echo "No test results found" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Error Details" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if grep -q "StackOverflowError\|NotSerializableException\|Error\|Exception" test-output.log; then
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          grep -A 5 -B 2 "StackOverflowError\|NotSerializableException\|Error:" test-output.log | head -30 >> $GITHUB_STEP_SUMMARY || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        fi
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Detailed Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        tail -50 test-output.log >> $GITHUB_STEP_SUMMARY
+        tail -100 test-output.log >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
     
     - name: Upload test results
