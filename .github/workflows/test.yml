@@ -1,0 +1,109 @@
+name: Test OSPREY3 Serialization Fixes
+
+on:
+  push:
+    branches:
+      - 'ten63-demo/**'
+      - main
+  pull_request:
+    branches:
+      - main
+      - 'ten63-demo/**'
+
+jobs:
+  test:
+    name: Test on JDK ${{ matrix.java-version }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: [17]
+        test-suite: ['TestFindGMEC']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up JDK ${{ matrix.java-version }}
+      uses: actions/setup-java@v3
+      with:
+        java-version: ${{ matrix.java-version }}
+        distribution: 'temurin'
+        cache: 'gradle'
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+    
+    - name: Run tests
+      id: test
+      continue-on-error: true
+      run: |
+        ./gradlew clean test --tests "edu.duke.cs.osprey.gmec.${{ matrix.test-suite }}" \
+          --info 2>&1 | tee test-output.log
+        TEST_EXIT_CODE=${PIPESTATUS[0]}
+        echo "exit_code=${TEST_EXIT_CODE}" >> $GITHUB_OUTPUT
+        exit ${TEST_EXIT_CODE}
+    
+    - name: Parse test results
+      if: always()
+      run: |
+        echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Execution Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        grep -E "(PASSED|FAILED|BUILD)" test-output.log | head -20 >> $GITHUB_STEP_SUMMARY || echo "No test results found" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Detailed Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        tail -50 test-output.log >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-jdk${{ matrix.java-version }}-${{ matrix.test-suite }}
+        path: |
+          build/reports/tests/test/
+          test-output.log
+        retention-days: 30
+    
+    - name: Upload test output log
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-output-jdk${{ matrix.java-version }}
+        path: test-output.log
+        retention-days: 7
+
+  summary:
+    name: Test Summary
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate summary
+      run: |
+        echo "# Test Execution Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "All test artifacts have been uploaded. Download to view detailed results." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Artifacts Available" >> $GITHUB_STEP_SUMMARY
+        ls -la >> $GITHUB_STEP_SUMMARY || true
+
