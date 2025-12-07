@@ -2,6 +2,7 @@
 add_executable(deepcopy_tests
     unit/test_basic.cpp
     unit/test_stream_parser.cpp
+    unit/test_class_descriptor.cpp
 )
 
 target_link_libraries(deepcopy_tests

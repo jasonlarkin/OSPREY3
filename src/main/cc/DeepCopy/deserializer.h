@@ -38,6 +38,24 @@ struct DeserializationTask {
     size_t streamOffset;  // Offset in stream instead of pointer
 };
 
+// Field descriptor in class descriptor
+struct FieldDescriptor {
+    char typeCode;  // 'I'=int, 'J'=long, 'D'=double, 'Z'=boolean, 'L'=object, etc.
+    std::string typeName;  // For object types: "Ljava/lang/String;"
+    std::string fieldName;
+};
+
+// Class descriptor information
+struct ClassDescriptor {
+    std::string className;
+    uint64_t serialVersionUID;
+    uint8_t flags;
+    std::vector<FieldDescriptor> fields;
+    size_t handleId;
+    
+    ClassDescriptor() : serialVersionUID(0), flags(0), handleId(0) {}
+};
+
 class IterativeDeserializer {
 public:
     // Custom deleter for object graph
@@ -85,6 +103,7 @@ private:
     std::vector<std::unique_ptr<DeserializationNode>> nodes;
     std::unordered_map<size_t, size_t> handleToNode;  // Handle ID -> node index
     std::unordered_map<size_t, size_t> offsetToNode;  // Stream offset -> node index
+    std::unordered_map<size_t, ClassDescriptor> classDescriptors;  // Handle ID -> class descriptor
     const uint8_t* stream;
     size_t streamSize;
     size_t streamPos;
@@ -109,7 +128,7 @@ private:
     // Deserialization
     void processNode(const DeserializationTask& task);
     void processObject(size_t nodeIndex, size_t offset);
-    void processClassDesc(size_t offset);
+    size_t processClassDesc(size_t offset);  // Returns handle ID of class descriptor
     void processArray(size_t nodeIndex, size_t offset);
     void processString(size_t nodeIndex, size_t offset);
     
