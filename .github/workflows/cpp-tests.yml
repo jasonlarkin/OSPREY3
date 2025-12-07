@@ -1,0 +1,63 @@
+name: C++ Deep Copy Tests
+
+on:
+  push:
+    branches:
+      - 'ten63-demo/**'
+      - main
+    paths:
+      - 'src/main/cc/DeepCopy/**'
+      - '.github/workflows/cpp-tests.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/main/cc/DeepCopy/**'
+      - '.github/workflows/cpp-tests.yml'
+
+jobs:
+  cpp-tests:
+    name: C++ Unit Tests (Deep Copy)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          g++ \
+          make
+    
+    - name: Build and Run Tests
+      working-directory: src/main/cc/DeepCopy
+      run: |
+        chmod +x build-and-test.sh
+        ./build-and-test.sh
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpp-test-results
+        path: |
+          src/main/cc/DeepCopy/build/Testing/**
+          src/main/cc/DeepCopy/build/test-results/**
+        retention-days: 7
+    
+    - name: Test Summary
+      if: always()
+      run: |
+        echo "## C++ Deep Copy Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -f src/main/cc/DeepCopy/build/Testing/Temporary/LastTest.log ]; then
+          echo "### Test Execution Log" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -50 src/main/cc/DeepCopy/build/Testing/Temporary/LastTest.log >> $GITHUB_STEP_SUMMARY || echo "No test log found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+
