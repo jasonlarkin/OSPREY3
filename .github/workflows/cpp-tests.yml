@@ -82,27 +82,49 @@ jobs:
         mkdir -p build
         cd build
         cmake .. -DBUILD_TESTS=ON
-        cmake --build . -j4
+        cmake --build . -j4 2>&1 | tee build.log
         
         # Verify integration test file is in the build
+        echo "=== Build Verification ==="
         echo "Checking if integration test source is included..."
         if [ -f "../tests/integration/test_captured_data.cpp" ]; then
-          echo "Integration test source file found"
+          echo "✓ Integration test source file found"
         else
-          echo "WARNING: Integration test source file not found"
+          echo "✗ WARNING: Integration test source file not found"
+        fi
+        
+        # Check if integration test file was compiled
+        echo "Checking if integration test was compiled..."
+        if grep -q "test_captured_data" build.log; then
+          echo "✓ Integration test file was compiled"
+          grep "test_captured_data" build.log
+        else
+          echo "✗ WARNING: Integration test file NOT found in build log"
+          echo "Checking what test files WERE compiled:"
+          grep -i "test.*\.cpp" build.log | head -15
+          echo ""
+          echo "Checking CMake configuration for test files:"
+          if [ -f "../tests/CMakeLists.txt" ]; then
+            echo "CMakeLists.txt contents:"
+            cat ../tests/CMakeLists.txt
+          fi
         fi
         
         # Check if test executable was built
         if [ -f "tests/deepcopy_tests" ]; then
-          echo "Test executable built successfully"
+          echo "✓ Test executable built successfully"
           # Check if integration test symbols are in the binary
+          echo "Checking for IntegrationTest symbols in binary..."
           if nm tests/deepcopy_tests 2>/dev/null | grep -qi "IntegrationTest"; then
-            echo "IntegrationTest symbols found in binary"
+            echo "✓ IntegrationTest symbols found in binary"
+            nm tests/deepcopy_tests 2>/dev/null | grep -i "IntegrationTest" | head -5
           else
-            echo "WARNING: IntegrationTest symbols NOT found in binary"
+            echo "✗ WARNING: IntegrationTest symbols NOT found in binary"
+            echo "Checking what test-related symbols ARE in the binary..."
+            nm tests/deepcopy_tests 2>/dev/null | grep -i "test" | head -10
           fi
         else
-          echo "ERROR: Test executable not found"
+          echo "✗ ERROR: Test executable not found"
         fi
     
     - name: Run Tests
@@ -129,25 +151,46 @@ jobs:
         echo "=== Listing all available tests ==="
         ./tests/deepcopy_tests --gtest_list_tests 2>&1 | tee test-list.log
         
-        # Show test list for debugging
+        # Show test list for debugging (also add to summary)
         echo ""
         echo "=== Full test list output ==="
         cat test-list.log
         echo ""
+        echo "=== Full test list output ===" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat test-list.log >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Count tests
-        TOTAL_TEST_COUNT=$(grep -c "^\s" test-list.log || echo "0")
-        INTEGRATION_TEST_COUNT=$(grep -c "IntegrationTest\." test-list.log || echo "0")
+        # Count tests (ensure we have valid numbers)
+        TOTAL_TEST_COUNT=$(grep -c "^\s" test-list.log 2>/dev/null || echo "0")
+        INTEGRATION_TEST_COUNT=$(grep -c "IntegrationTest\." test-list.log 2>/dev/null || echo "0")
+        
+        # Ensure we have valid integers
+        if [ -z "${TOTAL_TEST_COUNT}" ] || [ "${TOTAL_TEST_COUNT}" = "" ]; then
+          TOTAL_TEST_COUNT="0"
+        fi
+        if [ -z "${INTEGRATION_TEST_COUNT}" ] || [ "${INTEGRATION_TEST_COUNT}" = "" ]; then
+          INTEGRATION_TEST_COUNT="0"
+        fi
+        
         echo "Total tests discovered: ${TOTAL_TEST_COUNT}"
         echo "Integration tests discovered: ${INTEGRATION_TEST_COUNT}"
+        echo "**Total tests discovered:** ${TOTAL_TEST_COUNT}" >> $GITHUB_STEP_SUMMARY
+        echo "**Integration tests discovered:** ${INTEGRATION_TEST_COUNT}" >> $GITHUB_STEP_SUMMARY
         
         # Also check if IntegrationTest class appears at all
         if grep -q "IntegrationTest" test-list.log; then
-          echo "IntegrationTest class found in test list"
+          echo "✓ IntegrationTest class found in test list"
         else
-          echo "WARNING: IntegrationTest class NOT found in test list"
+          echo "✗ WARNING: IntegrationTest class NOT found in test list"
           echo "Checking if test file was compiled..."
-          nm ./tests/deepcopy_tests 2>/dev/null | grep -i integration || echo "IntegrationTest symbols not found in binary"
+          SYMBOL_CHECK=$(nm ./tests/deepcopy_tests 2>/dev/null | grep -i integration | head -5 || echo "IntegrationTest symbols not found in binary")
+          echo "${SYMBOL_CHECK}"
+          echo "**Symbol check:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${SYMBOL_CHECK}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "total_tests=${TOTAL_TEST_COUNT}" >> $GITHUB_OUTPUT
