@@ -7,7 +7,7 @@ add_executable(deepcopy_tests
     unit/test_array_parsing.cpp
     unit/test_algorithm.cpp
     unit/test_reference_resolution.cpp
-    # integration/test_captured_data.cpp  # TODO: Enable when test data is integrated from osprey-fork-main
+    integration/test_captured_data.cpp
 )
 
 target_link_libraries(deepcopy_tests
