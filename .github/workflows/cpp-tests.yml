@@ -60,14 +60,19 @@ jobs:
         
         if [ -f test-output.log ]; then
           # Extract test counts
-          TOTAL_TESTS=$(grep -oP '\[\s*PASSED\s*\]\s+\K\d+' test-output.log | head -1 || echo "0")
-          FAILED_TESTS=$(grep -c "\[  FAILED  \]" test-output.log || echo "0")
+          TOTAL_TESTS=$(grep -oP '\[\s*PASSED\s*\]\s+\K\d+' test-output.log | head -1)
+          FAILED_TESTS=$(grep -c "\[  FAILED  \]" test-output.log 2>/dev/null || echo "0")
+          
+          # Ensure numeric values
+          TOTAL_TESTS=${TOTAL_TESTS:-0}
+          FAILED_TESTS=${FAILED_TESTS:-0}
           
           echo "### Test Execution Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${TOTAL_TESTS}" ] && [ "${TOTAL_TESTS}" != "0" ]; then
+          if [ "${TOTAL_TESTS}" -gt 0 ] 2>/dev/null; then
+            PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
             echo "- **Total Tests:** ${TOTAL_TESTS}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Passed:** $((TOTAL_TESTS - FAILED_TESTS))" >> $GITHUB_STEP_SUMMARY
+            echo "- **Passed:** ${PASSED_TESTS}" >> $GITHUB_STEP_SUMMARY
             echo "- **Failed:** ${FAILED_TESTS}" >> $GITHUB_STEP_SUMMARY
           else
             echo "Full test output available in logs below" >> $GITHUB_STEP_SUMMARY
@@ -80,7 +85,7 @@ jobs:
           cat test-output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
         else
-          echo "⚠️ Test output log not found" >> $GITHUB_STEP_SUMMARY
+          echo "Test output log not found" >> $GITHUB_STEP_SUMMARY
         fi
     
     - name: Upload Test Results
