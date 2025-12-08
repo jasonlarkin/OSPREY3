@@ -14,12 +14,13 @@ mkdir -p test-data/metadata
 
 if [ "$MODE" = "synthetic" ]; then
     echo "Capturing synthetic test objects (fast)..."
-    # Use test framework approach but with a simple test that just generates data
-    # This is more reliable than trying to run main class directly
-    ./gradlew test --tests "edu.duke.cs.osprey.tools.CaptureTestObjects" 2>&1 || {
-        echo "Test framework approach failed, trying direct Java execution..."
-        # Fallback: compile and run directly
-        ./gradlew compileJava compileKotlin 2>&1
+    # Try direct Java execution first (faster and more reliable)
+    set +e  # Don't exit on error for this section
+    echo "Attempting direct Java execution..."
+    ./gradlew compileJava compileKotlin 2>&1
+    COMPILE_EXIT=$?
+    
+    if [ ${COMPILE_EXIT} -eq 0 ]; then
         # Try to get classpath from Gradle
         CLASSPATH=$(./gradlew -q printClasspath 2>/dev/null || echo "")
         if [ -z "$CLASSPATH" ]; then
@@ -29,10 +30,23 @@ if [ "$MODE" = "synthetic" ]; then
                 [ -f "$jar" ] && CLASSPATH="$CLASSPATH:$jar"
             done
         fi
+        echo "Running GenerateTestData with classpath: ${CLASSPATH:0:100}..."
         java -cp "$CLASSPATH" \
              --add-modules=jdk.incubator.foreign \
-             edu.duke.cs.osprey.tools.GenerateTestData 2>&1 || echo "Direct execution also failed"
-    }
+             edu.duke.cs.osprey.tools.GenerateTestData 2>&1
+        JAVA_EXIT=$?
+        
+        if [ ${JAVA_EXIT} -eq 0 ]; then
+            echo "Direct Java execution succeeded"
+        else
+            echo "Direct Java execution failed (exit code: ${JAVA_EXIT}), trying test framework..."
+            ./gradlew test --tests "edu.duke.cs.osprey.tools.CaptureTestObjects" 2>&1 || echo "Test framework approach also failed"
+        fi
+    else
+        echo "Compilation failed (exit code: ${COMPILE_EXIT}), trying test framework..."
+        ./gradlew test --tests "edu.duke.cs.osprey.tools.CaptureTestObjects" 2>&1 || echo "Test framework approach also failed"
+    fi
+    set -e  # Re-enable exit on error
 elif [ "$MODE" = "osprey" ]; then
     echo "Capturing OSPREY test objects (requires full test framework)..."
     # Use test framework to capture objects from real OSPREY tests
