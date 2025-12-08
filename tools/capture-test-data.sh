@@ -14,12 +14,25 @@ mkdir -p test-data/metadata
 
 if [ "$MODE" = "synthetic" ]; then
     echo "Capturing synthetic test objects (fast)..."
-    # Use standalone main class - compile first, then run with java
-    ./gradlew compileJava compileKotlin || true
-    # Run with java using the build classpath
-    java -cp "build/classes/java/main:build/classes/kotlin/main:build/resources/main:$(./gradlew printClasspath -q 2>/dev/null | tail -1)" \
-         --add-modules=jdk.incubator.foreign \
-         edu.duke.cs.osprey.tools.GenerateTestData || true
+    # Use test framework approach but with a simple test that just generates data
+    # This is more reliable than trying to run main class directly
+    ./gradlew test --tests "edu.duke.cs.osprey.tools.CaptureTestObjects" 2>&1 || {
+        echo "Test framework approach failed, trying direct Java execution..."
+        # Fallback: compile and run directly
+        ./gradlew compileJava compileKotlin 2>&1
+        # Try to get classpath from Gradle
+        CLASSPATH=$(./gradlew -q printClasspath 2>/dev/null || echo "")
+        if [ -z "$CLASSPATH" ]; then
+            # Build classpath manually
+            CLASSPATH="build/classes/java/main:build/classes/kotlin/main:build/resources/main"
+            for jar in lib/*.jar; do
+                [ -f "$jar" ] && CLASSPATH="$CLASSPATH:$jar"
+            done
+        fi
+        java -cp "$CLASSPATH" \
+             --add-modules=jdk.incubator.foreign \
+             edu.duke.cs.osprey.tools.GenerateTestData 2>&1 || echo "Direct execution also failed"
+    }
 elif [ "$MODE" = "osprey" ]; then
     echo "Capturing OSPREY test objects (requires full test framework)..."
     # Use test framework to capture objects from real OSPREY tests

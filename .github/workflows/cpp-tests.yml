@@ -35,17 +35,35 @@ jobs:
           openjdk-17-jdk
     
     - name: Generate Test Data
+      id: generate_test_data
       run: |
+        echo "## Generating Test Data" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
         # Generate synthetic test data for integration tests
         chmod +x tools/capture-test-data.sh
-        # Try to generate test data (don't fail if it doesn't work)
-        ./tools/capture-test-data.sh synthetic 2>&1 || echo "Test data generation completed with warnings"
+        echo "Running test data generation script..." >> $GITHUB_STEP_SUMMARY
+        ./tools/capture-test-data.sh synthetic 2>&1 | tee test-data-generation.log || echo "Test data generation completed with warnings"
+        
         # Verify test data was generated
         if [ -d test-data/serialized ] && [ "$(ls -A test-data/serialized/*.bin 2>/dev/null)" ]; then
-          echo "Test data generated successfully"
-          ls -lh test-data/serialized/*.bin
+          echo "Test data generated successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Generated files:" >> $GITHUB_STEP_SUMMARY
+          ls -lh test-data/serialized/*.bin >> $GITHUB_STEP_SUMMARY
+          echo "test_data_generated=true" >> $GITHUB_OUTPUT
         else
-          echo "Warning: Test data files not found - integration tests will be skipped"
+          echo "Warning: Test data files not found - integration tests will be skipped" >> $GITHUB_STEP_SUMMARY
+          echo "test_data_generated=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Show generation log
+        if [ -f test-data-generation.log ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Generation Log" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test-data-generation.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
         fi
     
     - name: Build
@@ -60,10 +78,26 @@ jobs:
       id: test
       working-directory: src/main/cc/DeepCopy/build
       run: |
+        # Verify test data is accessible from build directory
+        echo "Checking test data accessibility..."
+        ls -la ../../../../../../test-data/serialized/*.bin 2>&1 || echo "Test data not found from build directory"
+        
         # Run tests with full output (same as local)
+        echo "Running C++ tests..."
         ./tests/deepcopy_tests 2>&1 | tee test-output.log
         TEST_EXIT_CODE=${PIPESTATUS[0]}
         echo "exit_code=${TEST_EXIT_CODE}" >> $GITHUB_OUTPUT
+        
+        # Check if integration tests ran
+        if grep -q "IntegrationTest" test-output.log; then
+          echo "Integration tests detected in output"
+          INTEGRATION_COUNT=$(grep -c "IntegrationTest\." test-output.log || echo "0")
+          echo "integration_tests_found=${INTEGRATION_COUNT}" >> $GITHUB_OUTPUT
+        else
+          echo "Warning: No IntegrationTest tests found in output"
+          echo "integration_tests_found=0" >> $GITHUB_OUTPUT
+        fi
+        
         exit ${TEST_EXIT_CODE}
     
     - name: Test Summary
@@ -89,6 +123,14 @@ jobs:
               echo "- **Passed:** ${PASSED_TESTS}" >> $GITHUB_STEP_SUMMARY
               echo "- **Failed:** ${FAILED_TESTS}" >> $GITHUB_STEP_SUMMARY
             fi
+          fi
+          
+          # Check for integration tests
+          if grep -q "IntegrationTest" test-output.log; then
+            INTEGRATION_COUNT=$(grep -c "IntegrationTest\." test-output.log || echo "0")
+            echo "- **Integration Tests:** ${INTEGRATION_COUNT} found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Integration Tests:** Not found (test data may be missing)" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
