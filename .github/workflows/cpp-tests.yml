@@ -33,11 +33,55 @@ jobs:
           g++ \
           make
     
-    - name: Build and Run Tests
+    - name: Build
       working-directory: src/main/cc/DeepCopy
       run: |
-        chmod +x build-and-test.sh
-        ./build-and-test.sh
+        mkdir -p build
+        cd build
+        cmake .. -DBUILD_TESTS=ON
+        cmake --build . -j4
+    
+    - name: Run Tests
+      id: test
+      working-directory: src/main/cc/DeepCopy/build
+      run: |
+        # Run tests with full output (same as local)
+        ./tests/deepcopy_tests 2>&1 | tee test-output.log
+        TEST_EXIT_CODE=${PIPESTATUS[0]}
+        echo "exit_code=${TEST_EXIT_CODE}" >> $GITHUB_OUTPUT
+        exit ${TEST_EXIT_CODE}
+    
+    - name: Test Summary
+      if: always()
+      working-directory: src/main/cc/DeepCopy/build
+      run: |
+        echo "## C++ Deep Copy Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f test-output.log ]; then
+          # Extract test counts
+          TOTAL_TESTS=$(grep -oP '\[\s*PASSED\s*\]\s+\K\d+' test-output.log | head -1 || echo "0")
+          FAILED_TESTS=$(grep -c "\[  FAILED  \]" test-output.log || echo "0")
+          
+          echo "### Test Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${TOTAL_TESTS}" ] && [ "${TOTAL_TESTS}" != "0" ]; then
+            echo "- **Total Tests:** ${TOTAL_TESTS}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Passed:** $((TOTAL_TESTS - FAILED_TESTS))" >> $GITHUB_STEP_SUMMARY
+            echo "- **Failed:** ${FAILED_TESTS}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Full test output available in logs below" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show full test output (same as local)
+          echo "### Full Test Output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test-output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Test output log not found" >> $GITHUB_STEP_SUMMARY
+        fi
     
     - name: Upload Test Results
       if: always()
@@ -46,18 +90,6 @@ jobs:
         name: cpp-test-results
         path: |
           src/main/cc/DeepCopy/build/Testing/**
-          src/main/cc/DeepCopy/build/test-results/**
+          src/main/cc/DeepCopy/build/test-output.log
         retention-days: 7
-    
-    - name: Test Summary
-      if: always()
-      run: |
-        echo "## C++ Deep Copy Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [ -f src/main/cc/DeepCopy/build/Testing/Temporary/LastTest.log ]; then
-          echo "### Test Execution Log" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -50 src/main/cc/DeepCopy/build/Testing/Temporary/LastTest.log >> $GITHUB_STEP_SUMMARY || echo "No test log found" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        fi
 
