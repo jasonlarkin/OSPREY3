@@ -5,6 +5,7 @@ add_executable(deepcopy_tests
     unit/test_class_descriptor.cpp
     unit/test_field_parsing.cpp
     unit/test_algorithm.cpp
+    unit/test_reference_resolution.cpp
 )
 
 target_link_libraries(deepcopy_tests

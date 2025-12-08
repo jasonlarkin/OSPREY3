@@ -27,6 +27,7 @@ IterativeDeserializer::ObjectGraphPtr IterativeDeserializer::deserialize(
     handleToNode.clear();
     offsetToNode.clear();
     classDescriptors.clear();
+    handleToString.clear();
     
     try {
         // Parse Java serialization stream header
@@ -155,7 +156,13 @@ std::string IterativeDeserializer::readString(size_t offset) {
             throw std::runtime_error("String read beyond end");
         }
         
-        return std::string(reinterpret_cast<const char*>(stream + offset), length);
+        std::string str(reinterpret_cast<const char*>(stream + offset), length);
+        
+        // Assign handle to this string
+        size_t stringHandle = nextHandleId++;
+        handleToString[stringHandle] = str;
+        
+        return str;
     } else if (tag == StreamTag::TC_LONGSTRING) {
         uint64_t length = readLong(offset);
         offset += 8;
@@ -164,10 +171,21 @@ std::string IterativeDeserializer::readString(size_t offset) {
             throw std::runtime_error("Long string read beyond end");
         }
         
-        return std::string(reinterpret_cast<const char*>(stream + offset), length);
+        std::string str(reinterpret_cast<const char*>(stream + offset), length);
+        
+        // Assign handle to this string
+        size_t stringHandle = nextHandleId++;
+        handleToString[stringHandle] = str;
+        
+        return str;
     } else if (tag == StreamTag::TC_REFERENCE) {
-        // String reference - return empty for now, will resolve later
-        return "";
+        // String reference - look up by handle
+        size_t stringHandle = readInt(offset);
+        auto it = handleToString.find(stringHandle);
+        if (it == handleToString.end()) {
+            throw std::runtime_error("String reference not found: " + std::to_string(stringHandle));
+        }
+        return it->second;
     } else {
         throw std::runtime_error("Expected string tag, got " + std::to_string(static_cast<int>(tag)));
     }
@@ -344,24 +362,28 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
     // TC_OBJECT (0x73) followed by:
     // - Class descriptor (TC_CLASSDESC or TC_REFERENCE)
     // - Class data (fields)
+    // Note: offset points to the byte AFTER TC_OBJECT tag
     
-    // Read class descriptor
+    // Read class descriptor tag
     StreamTag classTag = readTag(offset);
-    offset++;
+    offset++;  // Skip class descriptor tag
     
     size_t classDescHandleId = 0;
     size_t dataOffset;
     
     if (classTag == StreamTag::TC_CLASSDESC) {
-        dataOffset = processClassDesc(offset);
+        size_t classDescEnd = processClassDesc(offset);
         // Get handle ID of the class descriptor we just created
         classDescHandleId = nextHandleId - 1;  // Last assigned handle
+        dataOffset = classDescEnd;
     } else if (classTag == StreamTag::TC_REFERENCE) {
         classDescHandleId = readInt(offset);
-        dataOffset = offset + 4;  // Handle (4 bytes, tag already consumed)
+        dataOffset = offset + 4;  // Handle (4 bytes)
         // Reference to existing class descriptor
     } else {
-        throw std::runtime_error("Expected class descriptor");
+        throw std::runtime_error("Expected class descriptor, got tag: " + 
+                                std::to_string(static_cast<int>(classTag)) + 
+                                " at offset " + std::to_string(offset - 1));
     }
     
     // Get class descriptor to parse object data
@@ -470,24 +492,55 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
 
 size_t IterativeDeserializer::processClassDesc(size_t offset) {
     // TC_CLASSDESC structure:
-    // - Class name (TC_STRING)
+    // - Class name (TC_STRING or TC_REFERENCE)
     // - Serial version UID (long)
     // - Flags (byte)
     // - Field count (short)
     // - Fields (type code + field name for each)
     // - Class annotations (TC_ENDBLOCKDATA)
     // - Super class descriptor (TC_NULL or TC_CLASSDESC)
+    // Note: offset points to the byte AFTER TC_CLASSDESC tag
     
     ClassDescriptor desc;
     size_t currentOffset = offset;
     
-    // Read class name
+    // Assign handle to this class descriptor BEFORE processing
+    size_t classDescHandle = nextHandleId++;
+    
+    // Read class name (can be TC_STRING or TC_REFERENCE)
     StreamTag nameTag = readTag(currentOffset);
-    if (nameTag != StreamTag::TC_STRING) {
-        throw std::runtime_error("Expected string for class name");
+    currentOffset++;  // Skip tag byte
+    
+    if (nameTag == StreamTag::TC_STRING) {
+        uint16_t length = readShort(currentOffset);
+        currentOffset += 2;
+        
+        if (currentOffset + length > streamSize) {
+            throw std::runtime_error("Class name string read beyond end");
+        }
+        
+        desc.className = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+        currentOffset += length;
+        
+        // Assign handle to this string
+        size_t stringHandle = nextHandleId++;
+        handleToString[stringHandle] = desc.className;
+    } else if (nameTag == StreamTag::TC_REFERENCE) {
+        // Reference to previously seen string
+        size_t stringHandle = readInt(currentOffset);
+        currentOffset += 4;  // Handle (4 bytes)
+        
+        // Look up string by handle
+        auto it = handleToString.find(stringHandle);
+        if (it == handleToString.end()) {
+            throw std::runtime_error("String reference not found: " + std::to_string(stringHandle));
+        }
+        desc.className = it->second;
+    } else {
+        throw std::runtime_error("Expected string or reference for class name, got tag: " + 
+                                std::to_string(static_cast<int>(nameTag)) + " at offset " + 
+                                std::to_string(currentOffset - 1));
     }
-    desc.className = readString(currentOffset);
-    currentOffset += 1 + 2 + desc.className.length();  // Tag + length + data
     
     // Read serial version UID (long, 8 bytes)
     desc.serialVersionUID = readLong(currentOffset);
@@ -512,21 +565,58 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
         // For object types ('L'), read type name
         if (field.typeCode == 'L') {
             StreamTag typeTag = readTag(currentOffset);
+            currentOffset++;
             if (typeTag == StreamTag::TC_STRING) {
-                field.typeName = readString(currentOffset);
-                currentOffset += 1 + 2 + field.typeName.length();
+                uint16_t length = readShort(currentOffset);
+                currentOffset += 2;
+                if (currentOffset + length > streamSize) {
+                    throw std::runtime_error("Type name string read beyond end");
+                }
+                field.typeName = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+                currentOffset += length;
+                
+                // Assign handle
+                size_t stringHandle = nextHandleId++;
+                handleToString[stringHandle] = field.typeName;
+            } else if (typeTag == StreamTag::TC_REFERENCE) {
+                size_t stringHandle = readInt(currentOffset);
+                currentOffset += 4;
+                auto it = handleToString.find(stringHandle);
+                if (it == handleToString.end()) {
+                    throw std::runtime_error("Type name reference not found: " + std::to_string(stringHandle));
+                }
+                field.typeName = it->second;
             } else {
-                throw std::runtime_error("Expected string for object type name");
+                throw std::runtime_error("Expected string or reference for object type name");
             }
         }
         
-        // Read field name (TC_STRING)
+        // Read field name (TC_STRING or TC_REFERENCE)
         StreamTag fieldNameTag = readTag(currentOffset);
-        if (fieldNameTag != StreamTag::TC_STRING) {
-            throw std::runtime_error("Expected string for field name");
+        currentOffset++;
+        if (fieldNameTag == StreamTag::TC_STRING) {
+            uint16_t length = readShort(currentOffset);
+            currentOffset += 2;
+            if (currentOffset + length > streamSize) {
+                throw std::runtime_error("Field name string read beyond end");
+            }
+            field.fieldName = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+            currentOffset += length;
+            
+            // Assign handle
+            size_t stringHandle = nextHandleId++;
+            handleToString[stringHandle] = field.fieldName;
+        } else if (fieldNameTag == StreamTag::TC_REFERENCE) {
+            size_t stringHandle = readInt(currentOffset);
+            currentOffset += 4;
+            auto it = handleToString.find(stringHandle);
+            if (it == handleToString.end()) {
+                throw std::runtime_error("Field name reference not found: " + std::to_string(stringHandle));
+            }
+            field.fieldName = it->second;
+        } else {
+            throw std::runtime_error("Expected string or reference for field name");
         }
-        field.fieldName = readString(currentOffset);
-        currentOffset += 1 + 2 + field.fieldName.length();
         
         desc.fields.push_back(field);
     }
@@ -632,9 +722,20 @@ void IterativeDeserializer::processReferences(size_t nodeIndex) {
 }
 
 void IterativeDeserializer::resolveReferences() {
-    // Resolve all references between nodes
-    // For now, references are already linked in nodes[].references
-    // This method will handle circular reference detection and linking
-    // TODO: Implement full reference resolution
+    // Verify all references are valid and handle circular references
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (!nodes[i]) continue;
+        
+        // Verify all referenced nodes exist
+        for (size_t refIndex : nodes[i]->references) {
+            if (refIndex >= nodes.size() || !nodes[refIndex]) {
+                throw std::runtime_error("Invalid reference: node " + std::to_string(i) + 
+                                         " references non-existent node " + std::to_string(refIndex));
+            }
+        }
+        
+        // Circular references are already handled by the reference tracking
+        // Each node can reference any other node, including itself or nodes that reference back
+    }
 }
 
