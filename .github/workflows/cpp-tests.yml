@@ -79,8 +79,20 @@ jobs:
       working-directory: src/main/cc/DeepCopy/build
       run: |
         # Verify test data is accessible from build directory
-        echo "Checking test data accessibility..."
-        ls -la ../../../../../../test-data/serialized/*.bin 2>&1 || echo "Test data not found from build directory"
+        echo "Checking test data accessibility from build directory..."
+        pwd
+        echo "Looking for test data at: ../../../../../../test-data/serialized/"
+        ls -la ../../../../../../test-data/serialized/*.bin 2>&1 || {
+          echo "Test data not found from build directory, trying alternative paths..."
+          ls -la ../../../../../test-data/serialized/*.bin 2>&1 || true
+          ls -la ../../../../test-data/serialized/*.bin 2>&1 || true
+        }
+        
+        # Also check from tests/ subdirectory (where executable runs)
+        echo "Checking from tests/ subdirectory..."
+        cd tests
+        ls -la ../../../../../../test-data/serialized/*.bin 2>&1 || echo "Not found from tests/"
+        cd ..
         
         # Run tests with full output (same as local)
         echo "Running C++ tests..."
