@@ -59,23 +59,21 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         if [ -f test-output.log ]; then
-          # Extract test counts
-          TOTAL_TESTS=$(grep -oP '\[\s*PASSED\s*\]\s+\K\d+' test-output.log | head -1)
-          FAILED_TESTS=$(grep -c "\[  FAILED  \]" test-output.log 2>/dev/null || echo "0")
-          
-          # Ensure numeric values
-          TOTAL_TESTS=${TOTAL_TESTS:-0}
-          FAILED_TESTS=${FAILED_TESTS:-0}
-          
           echo "### Test Execution Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${TOTAL_TESTS}" -gt 0 ] 2>/dev/null; then
-            PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
-            echo "- **Total Tests:** ${TOTAL_TESTS}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Passed:** ${PASSED_TESTS}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Failed:** ${FAILED_TESTS}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "Full test output available in logs below" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract test counts with error handling
+          TOTAL_LINE=$(grep "\[  PASSED  \]" test-output.log | tail -1)
+          if [ -n "${TOTAL_LINE}" ]; then
+            TOTAL_TESTS=$(echo "${TOTAL_LINE}" | grep -oE '[0-9]+' | head -1)
+            FAILED_TESTS=$(grep -c "\[  FAILED  \]" test-output.log 2>/dev/null || echo "0")
+            
+            if [ -n "${TOTAL_TESTS}" ] && [ "${TOTAL_TESTS}" -ge 0 ] 2>/dev/null && [ -n "${FAILED_TESTS}" ] && [ "${FAILED_TESTS}" -ge 0 ] 2>/dev/null; then
+              PASSED_TESTS=$(expr "${TOTAL_TESTS}" - "${FAILED_TESTS}" 2>/dev/null || echo "0")
+              echo "- **Total Tests:** ${TOTAL_TESTS}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Passed:** ${PASSED_TESTS}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Failed:** ${FAILED_TESTS}" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
