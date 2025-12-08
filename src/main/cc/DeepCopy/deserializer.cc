@@ -41,6 +41,7 @@ IterativeDeserializer::ObjectGraphPtr IterativeDeserializer::deserialize(
         }
         
         // Create root node and start processing
+        // Push offset to the tag byte since processNode will read the tag
         size_t rootNode = createNode();
         workQueue.push({rootNode, streamPos});
         
@@ -246,8 +247,7 @@ size_t IterativeDeserializer::skipObjectData(size_t offset) {
         
         if (classTag == StreamTag::TC_CLASSDESC) {
             // Parse class descriptor
-            size_t classDescEnd = processClassDesc(offset);
-            classDescHandleId = nextHandleId - 1;  // Last assigned handle
+            size_t classDescEnd = processClassDesc(offset, classDescHandleId);
             offset = classDescEnd;
         } else if (classTag == StreamTag::TC_REFERENCE) {
             // Reference to existing class descriptor
@@ -258,10 +258,12 @@ size_t IterativeDeserializer::skipObjectData(size_t offset) {
         }
         
         // Get class descriptor
-        auto it = classDescriptors.find(classDescHandleId);
-        if (it == classDescriptors.end()) {
-            throw std::runtime_error("Class descriptor not found");
-        }
+                auto it = classDescriptors.find(classDescHandleId);
+                if (it == classDescriptors.end()) {
+                    throw std::runtime_error("Class descriptor not found for handle: " + 
+                                            std::to_string(classDescHandleId) + 
+                                            " at offset " + std::to_string(offset - 1));
+                }
         desc = &it->second;
         
         // Skip object fields based on class descriptor
@@ -293,10 +295,7 @@ size_t IterativeDeserializer::skipObjectData(size_t offset) {
         size_t classDescHandleId = 0;
         if (arrayClassTag == StreamTag::TC_CLASSDESC) {
             // Parse class descriptor - it will be stored with handle ID assigned by processClassDesc
-            offset = processClassDesc(offset);
-            // The class descriptor was just stored, so get its handle ID
-            // processClassDesc assigns handle at the end, so it's nextHandleId - 1
-            classDescHandleId = nextHandleId - 1;
+            offset = processClassDesc(offset, classDescHandleId);
         } else if (arrayClassTag == StreamTag::TC_REFERENCE) {
             classDescHandleId = readInt(offset);
             offset += 4;
@@ -459,9 +458,7 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
     size_t dataOffset;
     
     if (classTag == StreamTag::TC_CLASSDESC) {
-        size_t classDescEnd = processClassDesc(offset);
-        // Get handle ID of the class descriptor we just created
-        classDescHandleId = nextHandleId - 1;  // Last assigned handle
+        size_t classDescEnd = processClassDesc(offset, classDescHandleId);
         dataOffset = classDescEnd;
     } else if (classTag == StreamTag::TC_REFERENCE) {
         classDescHandleId = readInt(offset);
@@ -476,7 +473,9 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
     // Get class descriptor to parse object data
     auto it = classDescriptors.find(classDescHandleId);
     if (it == classDescriptors.end()) {
-        throw std::runtime_error("Class descriptor not found");
+        throw std::runtime_error("Class descriptor not found for handle: " + 
+                                std::to_string(classDescHandleId) + 
+                                " at offset " + std::to_string(offset - 1));
     }
     const ClassDescriptor& desc = it->second;
     
@@ -559,8 +558,20 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
                 // Skip over the object/array/string to continue parsing remaining fields
                 // We need to parse enough to find where it ends
                 currentOffset = skipObjectData(currentOffset - 1);  // Include tag byte
+            } else if (tag == StreamTag::TC_BLOCKDATA || tag == StreamTag::TC_ENDBLOCKDATA) {
+                // Block data for custom serialization - skip it
+                // TC_BLOCKDATA is followed by length (1 byte) and data
+                // TC_ENDBLOCKDATA is just a marker (1 byte)
+                if (tag == StreamTag::TC_BLOCKDATA) {
+                    uint8_t length = readByte(currentOffset);
+                    currentOffset += 1 + length;  // Skip length byte and data
+                } else {
+                    // TC_ENDBLOCKDATA - just skip the tag (already incremented)
+                }
             } else {
-                throw std::runtime_error("Unexpected tag in object field");
+                throw std::runtime_error("Unexpected tag in object field: " + 
+                                        std::to_string(static_cast<int>(tag)) + 
+                                        " at offset " + std::to_string(currentOffset - 1));
             }
         }
     }
@@ -577,7 +588,7 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
     handleToNode[nodes[nodeIndex]->handleId] = nodeIndex;
 }
 
-size_t IterativeDeserializer::processClassDesc(size_t offset) {
+size_t IterativeDeserializer::processClassDesc(size_t offset, size_t& handleId) {
     // TC_CLASSDESC structure:
     // - Class name (TC_STRING or TC_REFERENCE)
     // - Serial version UID (long)
@@ -591,11 +602,17 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
     ClassDescriptor desc;
     size_t currentOffset = offset;
     
-    // Read class name (can be TC_STRING or TC_REFERENCE)
+    // Read class name FIRST (strings get handles before class descriptors in Java serialization)
+    // In TC_CLASSDESC, class name is written as "newString" which can be:
+    // 1. TC_STRING (0x74) + length (2 bytes) + data
+    // 2. TC_REFERENCE (0x71) + handle (4 bytes)
+    // 3. Directly as length (2 bytes) + data (when written inline in class descriptor)
+    // Check if next byte is a tag or length
     StreamTag nameTag = readTag(currentOffset);
-    currentOffset++;  // Skip tag byte
     
     if (nameTag == StreamTag::TC_STRING) {
+        // TC_STRING tag present
+        currentOffset++;  // Skip tag byte
         uint16_t length = readShort(currentOffset);
         currentOffset += 2;
         
@@ -611,6 +628,7 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
         handleToString[stringHandle] = desc.className;
     } else if (nameTag == StreamTag::TC_REFERENCE) {
         // Reference to previously seen string
+        currentOffset++;  // Skip tag byte
         size_t stringHandle = readInt(currentOffset);
         currentOffset += 4;  // Handle (4 bytes)
         
@@ -621,10 +639,29 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
         }
         desc.className = it->second;
     } else {
-        throw std::runtime_error("Expected string or reference for class name, got tag: " + 
-                                std::to_string(static_cast<int>(nameTag)) + " at offset " + 
-                                std::to_string(currentOffset - 1));
+        // No tag - class name is written directly as length + data (newString format in TC_CLASSDESC)
+        // In this case, the string does NOT get a handle - only the class descriptor gets a handle
+        uint16_t length = readShort(currentOffset);
+        currentOffset += 2;
+        
+        if (currentOffset + length > streamSize) {
+            throw std::runtime_error("Class name string read beyond end");
+        }
+        
+        desc.className = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+        currentOffset += length;
+        
+        // Do NOT assign handle to this string - when written directly in TC_CLASSDESC,
+        // only the class descriptor itself gets a handle
     }
+    
+    // Assign handle ID to class descriptor
+    // If class name had TC_STRING tag, string got handle first, then descriptor
+    // If class name was written directly, descriptor gets the handle
+    desc.handleId = nextHandleId++;
+    // Store immediately (with just handleId) so references can find it
+    // We'll update it with complete data at the end
+    classDescriptors[desc.handleId] = desc;
     
     // Read serial version UID (long, 8 bytes)
     desc.serialVersionUID = readLong(currentOffset);
@@ -646,11 +683,11 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
         field.typeCode = static_cast<char>(readByte(currentOffset));
         currentOffset += 1;
         
-        // For object types ('L'), read type name
+        // For object types ('L'), read type name (newString format)
         if (field.typeCode == 'L') {
             StreamTag typeTag = readTag(currentOffset);
-            currentOffset++;
             if (typeTag == StreamTag::TC_STRING) {
+                currentOffset++;  // Skip tag byte
                 uint16_t length = readShort(currentOffset);
                 currentOffset += 2;
                 if (currentOffset + length > streamSize) {
@@ -663,6 +700,7 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
                 size_t stringHandle = nextHandleId++;
                 handleToString[stringHandle] = field.typeName;
             } else if (typeTag == StreamTag::TC_REFERENCE) {
+                currentOffset++;  // Skip tag byte
                 size_t stringHandle = readInt(currentOffset);
                 currentOffset += 4;
                 auto it = handleToString.find(stringHandle);
@@ -671,14 +709,25 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
                 }
                 field.typeName = it->second;
             } else {
-                throw std::runtime_error("Expected string or reference for object type name");
+                // No tag - type name is written directly as length + data (newString format)
+                uint16_t length = readShort(currentOffset);
+                currentOffset += 2;
+                if (currentOffset + length > streamSize) {
+                    throw std::runtime_error("Type name string read beyond end");
+                }
+                field.typeName = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+                currentOffset += length;
+                
+                // Assign handle
+                size_t stringHandle = nextHandleId++;
+                handleToString[stringHandle] = field.typeName;
             }
         }
         
-        // Read field name (TC_STRING or TC_REFERENCE)
+        // Read field name (newString format: TC_STRING, TC_REFERENCE, or direct length+data)
         StreamTag fieldNameTag = readTag(currentOffset);
-        currentOffset++;
         if (fieldNameTag == StreamTag::TC_STRING) {
+            currentOffset++;  // Skip tag byte
             uint16_t length = readShort(currentOffset);
             currentOffset += 2;
             if (currentOffset + length > streamSize) {
@@ -691,6 +740,7 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
             size_t stringHandle = nextHandleId++;
             handleToString[stringHandle] = field.fieldName;
         } else if (fieldNameTag == StreamTag::TC_REFERENCE) {
+            currentOffset++;  // Skip tag byte
             size_t stringHandle = readInt(currentOffset);
             currentOffset += 4;
             auto it = handleToString.find(stringHandle);
@@ -699,7 +749,18 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
             }
             field.fieldName = it->second;
         } else {
-            throw std::runtime_error("Expected string or reference for field name");
+            // No tag - field name is written directly as length + data (newString format)
+            uint16_t length = readShort(currentOffset);
+            currentOffset += 2;
+            if (currentOffset + length > streamSize) {
+                throw std::runtime_error("Field name string read beyond end");
+            }
+            field.fieldName = std::string(reinterpret_cast<const char*>(stream + currentOffset), length);
+            currentOffset += length;
+            
+            // Assign handle
+            size_t stringHandle = nextHandleId++;
+            handleToString[stringHandle] = field.fieldName;
         }
         
         desc.fields.push_back(field);
@@ -710,22 +771,23 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
     StreamTag endTag = readTag(currentOffset);
     if (endTag == StreamTag::TC_ENDBLOCKDATA) {
         currentOffset += 1;
-    } else if (endTag == StreamTag::TC_BLOCKDATA) {
-        // Block data before ENDBLOCKDATA
-        skipBlockData(currentOffset);
-    } else {
-        // Unexpected tag - this might indicate a parsing error
-        // But for arrays with 0 fields, we should have TC_ENDBLOCKDATA here
-        throw std::runtime_error("Expected TC_ENDBLOCKDATA after fields, got tag: " + 
+        } else if (endTag == StreamTag::TC_BLOCKDATA) {
+            // Block data before ENDBLOCKDATA
+            skipBlockData(currentOffset);
+        } else {
+            // Unexpected tag - this might indicate a parsing error
+            // But for arrays with 0 fields, we should have TC_ENDBLOCKDATA here
+            throw std::runtime_error("Expected TC_ENDBLOCKDATA after fields, got tag: " + 
                                 std::to_string(static_cast<int>(endTag)) + 
                                 " at offset " + std::to_string(currentOffset));
-    }
-    
-    // Read super class descriptor (TC_NULL or TC_CLASSDESC)
-    StreamTag superTag = readTag(currentOffset);
-    if (superTag == StreamTag::TC_CLASSDESC) {
-        currentOffset += 1;
-        size_t superHandleId = processClassDesc(currentOffset);
+        }
+        
+        // Read super class descriptor (TC_NULL or TC_CLASSDESC)
+        StreamTag superTag = readTag(currentOffset);
+        if (superTag == StreamTag::TC_CLASSDESC) {
+            currentOffset += 1;
+            size_t superHandleId;
+            currentOffset = processClassDesc(currentOffset, superHandleId);
         // Track super class relationship if needed
     } else if (superTag == StreamTag::TC_NULL) {
         currentOffset += 1;
@@ -736,9 +798,12 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
         // Reference to existing class descriptor
     }
     
-    // Assign handle ID and store
-    desc.handleId = nextHandleId++;
+    // Handle ID already assigned and stored at the beginning
+    // Update the stored descriptor with final complete data
     classDescriptors[desc.handleId] = desc;
+    
+    // Return the handle ID via reference parameter
+    handleId = desc.handleId;
     
     // Update stream position (if tracking globally)
     // For now, return the offset after class descriptor
@@ -759,8 +824,7 @@ void IterativeDeserializer::processArray(size_t nodeIndex, size_t offset) {
     size_t dataOffset;
     
     if (classTag == StreamTag::TC_CLASSDESC) {
-        dataOffset = processClassDesc(offset);
-        classDescHandleId = nextHandleId - 1;  // Last assigned handle
+        dataOffset = processClassDesc(offset, classDescHandleId);
     } else if (classTag == StreamTag::TC_REFERENCE) {
         classDescHandleId = readInt(offset);
         dataOffset = offset + 4;
@@ -771,7 +835,9 @@ void IterativeDeserializer::processArray(size_t nodeIndex, size_t offset) {
     // Get class descriptor to determine element type
     auto it = classDescriptors.find(classDescHandleId);
     if (it == classDescriptors.end()) {
-        throw std::runtime_error("Array class descriptor not found");
+        throw std::runtime_error("Array class descriptor not found for handle: " + 
+                                std::to_string(classDescHandleId) + 
+                                " at offset " + std::to_string(offset - 1));
     }
     const ClassDescriptor& desc = it->second;
     

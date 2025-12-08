@@ -222,14 +222,59 @@ When OSPREY doesn't provide test cases, derive from algorithm properties:
 
 ## Test Data Sources
 
+### Ground Truth: Expert-Curated, Time-Tested Results
+
+**Philosophy:** When porting or modernizing code, ground truth tests from existing, curated, expert-generated, time-tested results provide the highest value for correctness validation. These tests serve as authoritative references that have been validated through years of use in production.
+
+**Examples:**
+- `TestFindGMEC.test1CC8()` - Proven GMEC search with known energy values (-70.617 kcal/mol)
+- `TestFindGMEC.testDEEPer()` - Validated DEEPer algorithm results
+- Production OSPREY examples (1CC8, 1CC8.deeper, etc.) - Expert-configured test cases
+
+**Value:**
+- **Correctness Validation:** Known-good results provide definitive correctness checks
+- **Regression Prevention:** Changes that break ground truth tests indicate serious regressions
+- **Confidence:** Passing ground truth tests demonstrates the new implementation matches proven behavior
+- **Documentation:** Ground truth tests document expected behavior and edge cases
+
+**Implementation:**
+- Capture objects from ground truth tests using `tools/capture-test-data.sh osprey`
+- Store captured serialized objects in `test-data/serialized/`
+- Use captured data in integration tests (`test_captured_data.cpp`)
+- Compare C++ deserialization results against known-good Java results
+
 ### From OSPREY
 - `BenchmarkDeepCopy.java` test classes (SimpleObject, NestedObject, CircularNode)
-- `TestFindGMEC` test scenarios (1CC8, DEEPer)
-- Production objects (MoleculeModifierAndScorer, EPICMatrix, etc.)
+- `TestFindGMEC` test scenarios (1CC8, DEEPer) - **Ground Truth**
+- Production objects (MoleculeModifierAndScorer, EPICMatrix, etc.) - **Ground Truth**
 
-### Generated
+### Generated (Synthetic)
 - Algorithm-based test cases (edge cases, stress tests)
 - Synthetic object graphs (varying depth, size, complexity)
+- Fast development/debugging tests (via `GenerateTestData`)
+
+### Test Data Generation Strategy
+
+**Two-Tier Approach:**
+
+1. **Fast Synthetic Tests** (`tools/capture-test-data.sh synthetic`)
+   - Uses `GenerateTestData` standalone main class
+   - No OSPREY infrastructure required
+   - Fast execution (< 1 second)
+   - Purpose: Development, debugging, quick validation
+   - Objects: SimpleObject, NestedObject, CircularNode, DeepNested
+
+2. **Ground Truth Tests** (`tools/capture-test-data.sh osprey`)
+   - Uses full OSPREY test framework (`CaptureTestObjects`)
+   - Requires full build and OSPREY infrastructure
+   - Slower execution (minutes)
+   - Purpose: Correctness validation against proven results
+   - Objects: Real OSPREY objects from `TestFindGMEC`, production code, etc.
+
+**Workflow:**
+- Use synthetic tests during development for fast iteration
+- Use ground truth tests for correctness validation and before commits
+- Both test data types stored in `test-data/` and used by integration tests
 
 ## Success Criteria
 
@@ -276,4 +321,59 @@ cd osprey-fork
 - Update tests when OSPREY test cases change
 - Maintain test coverage > 80%
 - Document test derivation (which OSPREY test → which C++ test)
+- **Prioritize ground truth tests** - When in doubt, use proven OSPREY test cases as the source of truth
+
+## Ground Truth Testing Philosophy
+
+### Why Ground Truth Tests Matter
+
+When modernizing or porting code, **ground truth tests from existing, curated, expert-generated, time-tested results provide the highest value for correctness validation**. This is especially critical when:
+
+1. **Porting implementations** (Java → C++)
+2. **Modernizing code** (recursive → iterative algorithms)
+3. **Optimizing performance** (ensuring correctness is maintained)
+4. **Refactoring** (validating behavior preservation)
+
+### Ground Truth Test Sources
+
+**OSPREY Examples:**
+- `TestFindGMEC.test1CC8()` - 7-residue GMEC search with known energy (-70.617 kcal/mol)
+- `TestFindGMEC.testDEEPer()` - 4-residue DEEPer search with validated results
+- Production examples in `examples/1CC8/`, `examples/1CC8.deeper/`, etc.
+
+**Production Code:**
+- Objects serialized during actual OSPREY computations
+- `MoleculeModifierAndScorer` from SAPE.java
+- `EPICMatrix` from VoxelGCalculator
+- Other production objects with proven correctness
+
+### Test Data Capture Infrastructure
+
+The project provides two modes for test data generation:
+
+1. **Synthetic Mode** (fast, for development):
+   ```bash
+   ./tools/capture-test-data.sh synthetic
+   ```
+   - Generates simple test objects (SimpleObject, NestedObject, etc.)
+   - No OSPREY infrastructure required
+   - Fast execution for rapid iteration
+
+2. **OSPREY Mode** (ground truth, for validation):
+   ```bash
+   ./tools/capture-test-data.sh osprey
+   ```
+   - Captures objects from real OSPREY tests
+   - Requires full OSPREY build and test framework
+   - Slower but provides authoritative test data
+
+### Integration with Testing Strategy
+
+Ground truth tests are integrated at multiple levels:
+
+- **Level 2 (Integration Tests):** Use captured serialized objects to validate C++ deserialization
+- **Level 3 (System Tests):** Compare C++ deep copy results against known-good Java results
+- **Level 4 (Performance Tests):** Ensure performance improvements don't break correctness
+
+This ensures that the C++ implementation maintains correctness while achieving performance goals.
 

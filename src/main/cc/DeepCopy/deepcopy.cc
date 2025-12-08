@@ -17,6 +17,19 @@ void* deepCopyFromBuffer(const void* serializedData, size_t dataSize) {
             return nullptr;
         }
         
+        // Validate stream header
+        const uint8_t* bytes = static_cast<const uint8_t*>(serializedData);
+        if (dataSize < 6) {
+            lastError = "Stream too short: " + std::to_string(dataSize) + " bytes (need at least 6)";
+            return nullptr;
+        }
+        
+        if (bytes[0] != 0xAC || bytes[1] != 0xED) {
+            lastError = "Invalid Java serialization magic: expected 0xAC 0xED, got " +
+                       std::to_string(bytes[0]) + " " + std::to_string(bytes[1]);
+            return nullptr;
+        }
+        
         IterativeDeserializer deserializer;
         
         // Deserialize returns unique_ptr (automatic memory management)

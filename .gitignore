@@ -2,6 +2,7 @@
 # temp folders
 /build
 /buildSrc/build
+**/build/
 **/*.egg-info
 **/*.pyc
 
@@ -27,3 +28,8 @@ nbbuild.xml
 # hugo things
 /doc/themes
 /doc/.hugo_build.lock
+
+# test data (captured from Java)
+**/test-data/
+**/tests/data/
+*.bin

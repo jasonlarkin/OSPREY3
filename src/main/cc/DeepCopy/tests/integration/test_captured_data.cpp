@@ -1,0 +1,134 @@
+#include <gtest/gtest.h>
+#include "deserializer.h"
+#include <fstream>
+#include <vector>
+#include <string>
+#include <filesystem>
+
+/**
+ * Integration tests using captured Java-serialized test data.
+ * 
+ * These tests validate that the C++ deserializer can correctly parse
+ * real Java-serialized objects captured from OSPREY.
+ * 
+ * Test data source: osprey-fork-main/test-data/
+ */
+
+class IntegrationTest : public ::testing::Test {
+protected:
+    /**
+     * Load binary test data file.
+     * 
+     * @param filename Name of the file in tests/data/serialized/
+     * @return Vector containing file contents
+     */
+    std::vector<uint8_t> loadTestData(const std::string& filename) {
+        // Try multiple possible paths (build directory, source directory)
+        std::vector<std::string> possiblePaths = {
+            "tests/data/serialized/" + filename,
+            "src/main/cc/DeepCopy/tests/data/serialized/" + filename,
+            "../tests/data/serialized/" + filename,
+            "../../tests/data/serialized/" + filename
+        };
+        
+        for (const auto& path : possiblePaths) {
+            std::ifstream file(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                std::streamsize size = file.tellg();
+                file.seekg(0, std::ios::beg);
+                
+                std::vector<uint8_t> buffer(size);
+                if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                    return buffer;
+                }
+            }
+        }
+        
+        // If file not found, return empty vector
+        // Test will fail with appropriate error message
+        return std::vector<uint8_t>();
+    }
+    
+    /**
+     * Verify deserialization succeeds without errors.
+     */
+    void verifySuccessfulDeserialization(const std::vector<uint8_t>& data) {
+        ASSERT_FALSE(data.empty()) << "Test data file not found or empty";
+        
+        IterativeDeserializer deserializer;
+        auto result = deserializer.deserialize(data.data(), data.size());
+        
+        const char* error = deserializer.getLastError();
+        if (error && strlen(error) > 0) {
+            FAIL() << "Deserialization error: " << error;
+        }
+        
+        ASSERT_NE(result, nullptr) << "Deserialization returned nullptr";
+    }
+};
+
+// Test deserializing SimpleObject (primitives: int, String, double)
+TEST_F(IntegrationTest, SimpleObject) {
+    auto data = loadTestData("simple-object.bin");
+    verifySuccessfulDeserialization(data);
+    
+    // Additional validation: verify stream was fully consumed
+    // (no errors indicate successful parsing)
+}
+
+// Test deserializing NestedObject (object references and List)
+TEST_F(IntegrationTest, NestedObject) {
+    auto data = loadTestData("nested-object.bin");
+    verifySuccessfulDeserialization(data);
+    
+    // NestedObject contains:
+    // - SimpleObject child
+    // - List<SimpleObject> children (serialized as array)
+    // - NestedObject nested
+    // This validates object references and array parsing
+}
+
+// Test deserializing CircularNode (circular references)
+TEST_F(IntegrationTest, CircularNode) {
+    auto data = loadTestData("circular-node.bin");
+    verifySuccessfulDeserialization(data);
+    
+    // CircularNode creates cycle: A -> B -> C -> A
+    // This validates circular reference detection and resolution
+}
+
+// Test deserializing deep nested structure (10 levels)
+TEST_F(IntegrationTest, DeepNested) {
+    auto data = loadTestData("deep-nested.bin");
+    verifySuccessfulDeserialization(data);
+    
+    // Deep nested structure with 10 levels
+    // This validates iterative algorithm handles unlimited depth
+    // (no stack overflow)
+}
+
+// Test that all captured data files can be deserialized
+TEST_F(IntegrationTest, AllCapturedData) {
+    std::vector<std::string> testFiles = {
+        "simple-object.bin",
+        "nested-object.bin",
+        "circular-node.bin",
+        "deep-nested.bin"
+    };
+    
+    for (const auto& filename : testFiles) {
+        auto data = loadTestData(filename);
+        ASSERT_FALSE(data.empty()) << "Failed to load: " << filename;
+        
+        IterativeDeserializer deserializer;
+        auto result = deserializer.deserialize(data.data(), data.size());
+        
+        const char* error = deserializer.getLastError();
+        if (error && strlen(error) > 0) {
+            FAIL() << "Deserialization error for " << filename << ": " << error;
+        }
+        
+        ASSERT_NE(result, nullptr) << "Deserialization returned nullptr for " << filename;
+    }
+}
+

@@ -130,7 +130,7 @@ private:
     // Deserialization
     void processNode(const DeserializationTask& task);
     void processObject(size_t nodeIndex, size_t offset);
-    size_t processClassDesc(size_t offset);  // Returns handle ID of class descriptor
+    size_t processClassDesc(size_t offset, size_t& handleId); // Returns offset after class descriptor, handleId is set
     void processArray(size_t nodeIndex, size_t offset);
     void processString(size_t nodeIndex, size_t offset);
     
