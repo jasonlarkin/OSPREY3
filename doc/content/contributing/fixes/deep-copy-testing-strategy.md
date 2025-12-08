@@ -14,7 +14,7 @@ weight = 100
 **Purpose:** Validate correctness of core algorithms and data structures
 
 **Test Categories:**
-1. **Stream Parsing Tests** (`test_stream_parser.cpp`)
+1. **Stream Parsing Tests** (`test_stream_parser.cpp`) - DONE
    - Parse Java serialization header (magic, version)
    - Read primitive types (byte, short, int, long)
    - Read strings (TC_STRING, TC_LONGSTRING)
@@ -22,19 +22,33 @@ weight = 100
    - Handle invalid/malformed streams
    - Edge cases: empty streams, truncated data
 
-2. **Deserialization Node Tests** (`test_deserialization_node.cpp`)
-   - Node creation and management
-   - Handle table tracking
-   - Reference tracking
-   - Memory management with smart pointers
+2. **Class Descriptor Tests** (`test_class_descriptor.cpp`) - DONE
+   - Parse class descriptors (TC_CLASSDESC)
+   - Handle field descriptors (primitives, objects, arrays)
+   - Handle class descriptor references (TC_REFERENCE)
+   - Parse super class descriptors
 
-3. **Object Graph Tests** (`test_object_graph.cpp`)
-   - Graph construction
-   - Node linking
-   - Cycle detection
-   - Reference resolution
+3. **Field Parsing Tests** (`test_field_parsing.cpp`) - DONE
+   - Parse primitive fields (int, double, boolean, etc.)
+   - Parse object reference fields
+   - Parse null fields
+   - Parse nested object structures
 
-4. **Algorithm Tests** (`test_algorithm.cpp`)
+4. **Array Parsing Tests** (`test_array_parsing.cpp`) - DONE
+   - Parse primitive arrays (int[], double[], boolean[])
+   - Parse object arrays (String[])
+   - Parse multi-dimensional arrays (int[][])
+   - Parse empty arrays
+   - Parse arrays with null elements
+   - Parse arrays with references
+
+5. **Reference Resolution Tests** (`test_reference_resolution.cpp`) - DONE
+   - Resolve forward references
+   - Handle circular references
+   - Handle self-references
+   - Handle multiple references to same object
+
+6. **Algorithm Tests** (`test_algorithm.cpp`) - DONE
    - BFS traversal correctness
    - Work queue management
    - Iterative vs recursive (depth limits)
@@ -168,11 +182,16 @@ When OSPREY doesn't provide test cases, derive from algorithm properties:
 **Status:** In Progress
 **Focus:** Stream parsing and basic deserialization
 
-**Tests to Implement:**
+**Tests Implemented:**
 1. Basic interface tests (`test_basic.cpp`) - DONE
 2. Stream parser tests (`test_stream_parser.cpp`) - DONE
-3. Deserialization node tests (`test_deserialization_node.cpp`)
-4. Object graph tests (`test_object_graph.cpp`)
+3. Class descriptor tests (`test_class_descriptor.cpp`) - DONE
+4. Field parsing tests (`test_field_parsing.cpp`) - DONE
+5. Array parsing tests (`test_array_parsing.cpp`) - DONE
+6. Reference resolution tests (`test_reference_resolution.cpp`) - DONE
+7. Algorithm correctness tests (`test_algorithm.cpp`) - DONE
+
+**Total: 43 unit tests passing**
 
 ### Phase 2: Integration Tests (After Core Implementation)
 **Status:** Planned

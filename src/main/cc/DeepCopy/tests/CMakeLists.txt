@@ -4,6 +4,7 @@ add_executable(deepcopy_tests
     unit/test_stream_parser.cpp
     unit/test_class_descriptor.cpp
     unit/test_field_parsing.cpp
+    unit/test_array_parsing.cpp
     unit/test_algorithm.cpp
     unit/test_reference_resolution.cpp
 )

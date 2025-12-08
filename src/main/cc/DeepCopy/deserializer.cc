@@ -290,22 +290,109 @@ size_t IterativeDeserializer::skipObjectData(size_t offset) {
         StreamTag arrayClassTag = readTag(offset);
         offset++;
         
+        size_t classDescHandleId = 0;
         if (arrayClassTag == StreamTag::TC_CLASSDESC) {
+            // Parse class descriptor - it will be stored with handle ID assigned by processClassDesc
             offset = processClassDesc(offset);
+            // The class descriptor was just stored, so get its handle ID
+            // processClassDesc assigns handle at the end, so it's nextHandleId - 1
+            classDescHandleId = nextHandleId - 1;
         } else if (arrayClassTag == StreamTag::TC_REFERENCE) {
+            classDescHandleId = readInt(offset);
             offset += 4;
         } else {
             throw std::runtime_error("Expected class descriptor in array");
         }
         
+        // Get class descriptor to determine element type
+        // Note: For TC_REFERENCE, the class descriptor must have been parsed earlier
+        auto it = classDescriptors.find(classDescHandleId);
+        if (it == classDescriptors.end()) {
+            // If not found, it might not have been parsed yet (forward reference)
+            // This can happen when skipping nested arrays
+            // We need to determine element type heuristically by peeking at the first element
+            uint32_t length = readInt(offset);
+            offset += 4;
+            
+            if (length == 0) {
+                // Empty array - nothing to skip
+                return offset;
+            }
+            
+            // Peek at first element to determine if it's primitive or object
+            // If it's a valid StreamTag (0x70-0x7E), it's an object/array/string/null/reference
+            // Otherwise, it's likely a primitive
+            uint8_t firstByte = readByte(offset);
+            bool isPrimitive = (firstByte < 0x70 || firstByte > 0x7E);
+            
+            if (isPrimitive) {
+                // Primitive array - we can't determine exact type, so we'll skip based on common sizes
+                // This is a heuristic: try 4 bytes (int/float) first, fall back to other sizes if needed
+                // For now, assume int[] (4 bytes per element) as most common
+                offset += length * 4;
+            } else {
+                // Object array - skip elements by reading tags
+                for (uint32_t i = 0; i < length; i++) {
+                    StreamTag elementTag = readTag(offset);
+                    offset++;
+                    if (elementTag == StreamTag::TC_NULL) {
+                        // Null element - already skipped
+                    } else if (elementTag == StreamTag::TC_REFERENCE) {
+                        // Reference - skip handle
+                        offset += 4;
+                    } else {
+                        // Object/array/string - recursively skip
+                        offset = skipObjectData(offset - 1);
+                    }
+                }
+            }
+            return offset;
+        }
+        const ClassDescriptor& desc = it->second;
+        
+        // Determine element type from class name
+        if (desc.className.empty() || desc.className[0] != '[') {
+            throw std::runtime_error("Invalid array class name: " + desc.className);
+        }
+        char elementType = desc.className[1];
+        
         // Read array length
         uint32_t length = readInt(offset);
         offset += 4;
         
-        // For now, arrays are not fully supported in skip
-        // This will be handled properly in processArray
-        // TODO: Implement proper array element skipping
-        throw std::runtime_error("Array skipping not fully implemented");
+        // Skip array elements based on element type
+        for (uint32_t i = 0; i < length; i++) {
+            if (elementType == 'L' || elementType == '[') {
+                // Object or array element - read tag first, then skip
+                StreamTag elementTag = readTag(offset);
+                offset++;
+                if (elementTag == StreamTag::TC_NULL) {
+                    // Null element - already skipped tag, nothing more to skip
+                } else if (elementTag == StreamTag::TC_REFERENCE) {
+                    // Reference - skip handle (4 bytes)
+                    offset += 4;
+                } else {
+                    // Object/array/string - recursively skip (offset-1 to include tag)
+                    offset = skipObjectData(offset - 1);
+                }
+            } else {
+                // Primitive element - skip based on type
+                switch (elementType) {
+                    case 'B': offset += 1; break;  // byte
+                    case 'C': offset += 2; break;  // char
+                    case 'D': offset += 8; break;  // double
+                    case 'F': offset += 4; break;  // float
+                    case 'I': offset += 4; break;  // int
+                    case 'J': offset += 8; break;  // long
+                    case 'S': offset += 2; break;  // short
+                    case 'Z': offset += 1; break;  // boolean
+                    default:
+                        throw std::runtime_error("Unsupported array element type: " + std::string(1, elementType));
+                }
+            }
+        }
+        
+        return offset;
     } else {
         throw std::runtime_error("Unsupported tag in skipObjectData: " + std::to_string(static_cast<int>(tag)));
     }
@@ -504,9 +591,6 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
     ClassDescriptor desc;
     size_t currentOffset = offset;
     
-    // Assign handle to this class descriptor BEFORE processing
-    size_t classDescHandle = nextHandleId++;
-    
     // Read class name (can be TC_STRING or TC_REFERENCE)
     StreamTag nameTag = readTag(currentOffset);
     currentOffset++;  // Skip tag byte
@@ -622,12 +706,19 @@ size_t IterativeDeserializer::processClassDesc(size_t offset) {
     }
     
     // Skip class annotations (TC_ENDBLOCKDATA)
+    // After fields, there should be TC_ENDBLOCKDATA (or TC_BLOCKDATA followed by TC_ENDBLOCKDATA)
     StreamTag endTag = readTag(currentOffset);
     if (endTag == StreamTag::TC_ENDBLOCKDATA) {
         currentOffset += 1;
-    } else {
-        // May have block data before ENDBLOCKDATA
+    } else if (endTag == StreamTag::TC_BLOCKDATA) {
+        // Block data before ENDBLOCKDATA
         skipBlockData(currentOffset);
+    } else {
+        // Unexpected tag - this might indicate a parsing error
+        // But for arrays with 0 fields, we should have TC_ENDBLOCKDATA here
+        throw std::runtime_error("Expected TC_ENDBLOCKDATA after fields, got tag: " + 
+                                std::to_string(static_cast<int>(endTag)) + 
+                                " at offset " + std::to_string(currentOffset));
     }
     
     // Read super class descriptor (TC_NULL or TC_CLASSDESC)
@@ -664,23 +755,133 @@ void IterativeDeserializer::processArray(size_t nodeIndex, size_t offset) {
     StreamTag classTag = readTag(offset);
     offset++;
     
-    size_t arrayTypeOffset = offset;
+    size_t classDescHandleId = 0;
+    size_t dataOffset;
+    
     if (classTag == StreamTag::TC_CLASSDESC) {
-        arrayTypeOffset = processClassDesc(offset);
+        dataOffset = processClassDesc(offset);
+        classDescHandleId = nextHandleId - 1;  // Last assigned handle
     } else if (classTag == StreamTag::TC_REFERENCE) {
-        size_t handleId = readInt(offset);
-        arrayTypeOffset = offset + 4;
+        classDescHandleId = readInt(offset);
+        dataOffset = offset + 4;
+    } else {
+        throw std::runtime_error("Expected class descriptor in array");
     }
     
-    // Read array length
-    uint32_t length = readInt(offset);
-    offset += 4;
+    // Get class descriptor to determine element type
+    auto it = classDescriptors.find(classDescHandleId);
+    if (it == classDescriptors.end()) {
+        throw std::runtime_error("Array class descriptor not found");
+    }
+    const ClassDescriptor& desc = it->second;
     
-    // For now, create placeholder
-    // TODO: Parse array elements based on type
-    auto arrData = std::make_unique<uint8_t[]>(1);
-    arrData[0] = 0;
+    // Array class names: "[I" for int[], "[Ljava/lang/String;" for String[]
+    // First character is '[', rest is element type
+    if (desc.className.empty() || desc.className[0] != '[') {
+        throw std::runtime_error("Invalid array class name: " + desc.className);
+    }
+    
+    // Determine element type from class name
+    char elementType = desc.className[1];
+    
+    // Read array length (at dataOffset, after class descriptor)
+    uint32_t length = readInt(dataOffset);
+    size_t currentOffset = dataOffset + 4;
+    
+    // Parse array elements based on element type
+    for (uint32_t i = 0; i < length; i++) {
+        if (elementType == 'L') {
+            // Object array - elements are stream tags
+            StreamTag tag = readTag(currentOffset);
+            currentOffset++;
+            
+            if (tag == StreamTag::TC_NULL) {
+                // Null element - nothing to do
+            } else if (tag == StreamTag::TC_REFERENCE) {
+                // Reference to existing object
+                size_t handleId = readInt(currentOffset);
+                currentOffset += 4;
+                size_t refNodeIndex = getOrCreateNodeForHandle(handleId);
+                nodes[nodeIndex]->references.push_back(refNodeIndex);
+            } else if (tag == StreamTag::TC_OBJECT || tag == StreamTag::TC_ARRAY || 
+                       tag == StreamTag::TC_STRING || tag == StreamTag::TC_LONGSTRING) {
+                // New object/array/string element
+                size_t refNodeIndex = createNode();
+                nodes[nodeIndex]->references.push_back(refNodeIndex);
+                workQueue.push({refNodeIndex, currentOffset - 1});
+                currentOffset = skipObjectData(currentOffset - 1);
+            } else {
+                throw std::runtime_error("Unexpected tag in array element");
+            }
+        } else {
+            // Primitive array - read elements directly
+            switch (elementType) {
+                case 'B':  // byte[]
+                    readByte(currentOffset);
+                    currentOffset += 1;
+                    break;
+                case 'C':  // char[]
+                    readShort(currentOffset);
+                    currentOffset += 2;
+                    break;
+                case 'D':  // double[]
+                    readLong(currentOffset);
+                    currentOffset += 8;
+                    break;
+                case 'F':  // float[]
+                    readInt(currentOffset);
+                    currentOffset += 4;
+                    break;
+                case 'I':  // int[]
+                    readInt(currentOffset);
+                    currentOffset += 4;
+                    break;
+                case 'J':  // long[]
+                    readLong(currentOffset);
+                    currentOffset += 8;
+                    break;
+                case 'S':  // short[]
+                    readShort(currentOffset);
+                    currentOffset += 2;
+                    break;
+                case 'Z':  // boolean[]
+                    readByte(currentOffset);
+                    currentOffset += 1;
+                    break;
+                case '[': {  // Multi-dimensional array
+                    // Nested array - read tag first, then treat as object
+                    StreamTag nestedTag = readTag(currentOffset);
+                    currentOffset++;
+                    if (nestedTag == StreamTag::TC_NULL) {
+                        // Null element - nothing to do
+                    } else if (nestedTag == StreamTag::TC_REFERENCE) {
+                        // Reference to existing array
+                        size_t handleId = readInt(currentOffset);
+                        currentOffset += 4;
+                        size_t refNodeIndex = getOrCreateNodeForHandle(handleId);
+                        nodes[nodeIndex]->references.push_back(refNodeIndex);
+                    } else if (nestedTag == StreamTag::TC_ARRAY) {
+                        // New nested array
+                        size_t refNodeIndex = createNode();
+                        nodes[nodeIndex]->references.push_back(refNodeIndex);
+                        workQueue.push({refNodeIndex, currentOffset - 1});
+                        currentOffset = skipObjectData(currentOffset - 1);
+                    } else {
+                        throw std::runtime_error("Unexpected tag in nested array element");
+                    }
+                    break;
+                }
+                default:
+                    throw std::runtime_error("Unsupported array element type: " + std::string(1, elementType));
+            }
+        }
+    }
+    
+    // Store array data offset
+    auto arrData = std::make_unique<uint8_t[]>(sizeof(size_t));
+    *reinterpret_cast<size_t*>(arrData.get()) = dataOffset;
     nodes[nodeIndex]->object = ObjectGraphPtr(arrData.release(), ObjectGraphDeleter());
+    nodes[nodeIndex]->classId = classDescHandleId;
     
     nodes[nodeIndex]->handleId = nextHandleId++;
     handleToNode[nodes[nodeIndex]->handleId] = nodeIndex;

@@ -104,6 +104,7 @@ private:
     std::unordered_map<size_t, size_t> handleToNode;  // Handle ID -> node index
     std::unordered_map<size_t, size_t> offsetToNode;  // Stream offset -> node index
     std::unordered_map<size_t, ClassDescriptor> classDescriptors;  // Handle ID -> class descriptor
+    std::unordered_map<size_t, std::string> handleToString;  // Handle ID -> string value
     const uint8_t* stream;
     size_t streamSize;
     size_t streamPos;

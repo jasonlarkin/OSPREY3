@@ -20,12 +20,14 @@ The current C++ implementation **parses the stream structure** but does **not re
 2. **Track object graph** - Build a graph of object relationships and references
 3. **Handle cycles** - Detect and preserve circular references
 4. **Skip primitives** - Read primitive values to advance stream offset, but don't store them
+5. **Handle arrays** - Parse array structures (primitive arrays, object arrays, multi-dimensional arrays)
 
 ### Why This Approach?
 
 **Java serialization format** (as used by `ObjectOutputStream`/`ObjectInputStream` in `ObjectIO.deepCopy()`) writes:
 - **Primitive fields** directly as bytes (byte, char, short, int, long, float, double, boolean)
 - **Object fields** as stream tags (TC_OBJECT, TC_REFERENCE, TC_NULL, etc.)
+- **Array fields** as TC_ARRAY followed by class descriptor, length, and elements
 
 Since parsing a **Java serialization stream**, must handle all 8 primitive types that Java supports:
 - `B` = byte (1 byte)
@@ -137,13 +139,33 @@ static public Object deepCopy(Object oldObj) {
 - C++ deserializes iteratively (no recursion)
 - Avoids stack overflow during deserialization
 
+## Array Handling
+
+Arrays in Java serialization are represented as `TC_ARRAY` tags followed by:
+1. **Class descriptor** - Describes the array type (e.g., `[I` for `int[]`, `[Ljava/lang/String;` for `String[]`)
+2. **Array length** - 4-byte integer
+3. **Array elements** - Primitives written directly, objects/arrays as stream tags
+
+**Implementation:**
+- **Primitive arrays** - Read length, skip elements based on primitive type size
+- **Object arrays** - Read length, process each element as a stream tag (TC_NULL, TC_REFERENCE, TC_OBJECT, TC_ARRAY, TC_STRING)
+- **Multi-dimensional arrays** - Recursively handle nested arrays (e.g., `int[][]` is `[[I`)
+- **Empty arrays** - Handle length 0 correctly
+- **Array references** - Support TC_REFERENCE for class descriptors when arrays share types
+
+**Skipping arrays:**
+- When skipping (in `skipObjectData`), determine element type from class descriptor
+- For forward references (class descriptor not yet parsed), use heuristic: peek at first element to detect primitives vs objects
+- Recursively skip nested arrays and objects
+
 ## Summary
 
 1. **Parse structure, don't reconstruct objects** - Simpler, sufficient for goal
 2. **Handle all 8 primitives** - Required by Java serialization format
-3. **Use smart pointers** - Automatic memory management
-4. **No templates for primitives** - Not needed when just skipping bytes
-5. **Future: Full C++ implementation** - Would use templates, but not required now
+3. **Handle arrays** - Primitive arrays, object arrays, multi-dimensional arrays
+4. **Use smart pointers** - Automatic memory management
+5. **No templates for primitives** - Not needed when just skipping bytes
+6. **Future: Full C++ implementation** - Would use templates, but not required now
 
 The design prioritizes **simplicity and correctness** over full object reconstruction, which aligns with the primary goal: **iterative deep copy without stack overflow**.
 
