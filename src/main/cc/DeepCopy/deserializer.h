@@ -120,6 +120,7 @@ private:
     std::string readString(size_t offset);
     size_t readHandle(size_t offset);
     void skipBlockData(size_t& offset);
+    size_t skipObjectData(size_t offset);  // Skip over object/array/string, return new offset
     
     // Node management
     size_t createNode();

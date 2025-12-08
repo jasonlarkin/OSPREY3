@@ -199,6 +199,100 @@ void IterativeDeserializer::skipBlockData(size_t& offset) {
     }
 }
 
+size_t IterativeDeserializer::skipObjectData(size_t offset) {
+    // offset should point to the tag byte
+    StreamTag tag = readTag(offset);
+    offset++;
+    
+    if (tag == StreamTag::TC_NULL) {
+        // Null - already skipped tag
+        return offset;
+    } else if (tag == StreamTag::TC_REFERENCE) {
+        // Reference - skip handle (4 bytes)
+        return offset + 4;
+    } else if (tag == StreamTag::TC_STRING) {
+        // String - skip length (2 bytes) + data
+        uint16_t length = readShort(offset);
+        return offset + 2 + length;
+    } else if (tag == StreamTag::TC_LONGSTRING) {
+        // Long string - skip length (8 bytes) + data
+        uint64_t length = readLong(offset);
+        return offset + 8 + length;
+    } else if (tag == StreamTag::TC_OBJECT) {
+        // Object - skip class descriptor and object data
+        StreamTag classTag = readTag(offset);
+        offset++;
+        
+        size_t classDescHandleId = 0;
+        const ClassDescriptor* desc = nullptr;
+        
+        if (classTag == StreamTag::TC_CLASSDESC) {
+            // Parse class descriptor
+            size_t classDescEnd = processClassDesc(offset);
+            classDescHandleId = nextHandleId - 1;  // Last assigned handle
+            offset = classDescEnd;
+        } else if (classTag == StreamTag::TC_REFERENCE) {
+            // Reference to existing class descriptor
+            classDescHandleId = readInt(offset);
+            offset += 4;
+        } else {
+            throw std::runtime_error("Expected class descriptor in object");
+        }
+        
+        // Get class descriptor
+        auto it = classDescriptors.find(classDescHandleId);
+        if (it == classDescriptors.end()) {
+            throw std::runtime_error("Class descriptor not found");
+        }
+        desc = &it->second;
+        
+        // Skip object fields based on class descriptor
+        // Primitives first
+        for (const auto& field : desc->fields) {
+            switch (field.typeCode) {
+                case 'B': offset += 1; break;
+                case 'C': offset += 2; break;
+                case 'D': offset += 8; break;
+                case 'F': offset += 4; break;
+                case 'I': offset += 4; break;
+                case 'J': offset += 8; break;
+                case 'S': offset += 2; break;
+                case 'Z': offset += 1; break;
+                case 'L':
+                case '[':
+                    // Object/array field - recursively skip
+                    offset = skipObjectData(offset);
+                    break;
+            }
+        }
+        
+        return offset;
+    } else if (tag == StreamTag::TC_ARRAY) {
+        // Array - skip class descriptor, length, and elements
+        StreamTag arrayClassTag = readTag(offset);
+        offset++;
+        
+        if (arrayClassTag == StreamTag::TC_CLASSDESC) {
+            offset = processClassDesc(offset);
+        } else if (arrayClassTag == StreamTag::TC_REFERENCE) {
+            offset += 4;
+        } else {
+            throw std::runtime_error("Expected class descriptor in array");
+        }
+        
+        // Read array length
+        uint32_t length = readInt(offset);
+        offset += 4;
+        
+        // For now, arrays are not fully supported in skip
+        // This will be handled properly in processArray
+        // TODO: Implement proper array element skipping
+        throw std::runtime_error("Array skipping not fully implemented");
+    } else {
+        throw std::runtime_error("Unsupported tag in skipObjectData: " + std::to_string(static_cast<int>(tag)));
+    }
+}
+
 size_t IterativeDeserializer::getOrCreateNodeForHandle(size_t handleId) {
     auto it = handleToNode.find(handleId);
     if (it != handleToNode.end()) {
@@ -278,11 +372,96 @@ void IterativeDeserializer::processObject(size_t nodeIndex, size_t offset) {
     const ClassDescriptor& desc = it->second;
     
     // Parse object fields based on class descriptor
-    // For now, create placeholder - will implement field parsing next
-    // TODO: Parse fields based on desc.fields
-    auto objData = std::make_unique<uint8_t[]>(1);
-    objData[0] = 0;  // Placeholder
+    // Fields are written in declaration order: primitives first, then objects
+    size_t currentOffset = dataOffset;
+    
+    // First pass: read all primitive fields
+    for (const auto& field : desc.fields) {
+        switch (field.typeCode) {
+            case 'B':  // byte
+                readByte(currentOffset);
+                currentOffset += 1;
+                break;
+            case 'C':  // char (UTF-16, 2 bytes)
+                readShort(currentOffset);
+                currentOffset += 2;
+                break;
+            case 'D':  // double
+                readLong(currentOffset);  // Read as 8 bytes
+                currentOffset += 8;
+                break;
+            case 'F':  // float
+                readInt(currentOffset);  // Read as 4 bytes
+                currentOffset += 4;
+                break;
+            case 'I':  // int
+                readInt(currentOffset);
+                currentOffset += 4;
+                break;
+            case 'J':  // long
+                readLong(currentOffset);
+                currentOffset += 8;
+                break;
+            case 'S':  // short
+                readShort(currentOffset);
+                currentOffset += 2;
+                break;
+            case 'Z':  // boolean
+                readByte(currentOffset);
+                currentOffset += 1;
+                break;
+            case 'L':  // Object type - will be handled in second pass
+            case '[':  // Array type - will be handled in second pass
+                // Skip for now, handle in second pass
+                break;
+            default:
+                throw std::runtime_error("Unsupported field type code");
+        }
+    }
+    
+    // Second pass: read object and array fields
+    for (const auto& field : desc.fields) {
+        if (field.typeCode == 'L' || field.typeCode == '[') {
+            // Object or array field - read stream tag
+            StreamTag tag = readTag(currentOffset);
+            currentOffset++;
+            
+            if (tag == StreamTag::TC_NULL) {
+                // Null reference - nothing to do
+            } else if (tag == StreamTag::TC_REFERENCE) {
+                // Reference to existing object
+                size_t handleId = readInt(currentOffset);
+                currentOffset += 4;
+                
+                // Create or get node for this reference
+                size_t refNodeIndex = getOrCreateNodeForHandle(handleId);
+                nodes[nodeIndex]->references.push_back(refNodeIndex);
+                nodes[nodeIndex]->referenceOffsets.push_back(currentOffset - 5);  // Store offset where reference was found
+            } else if (tag == StreamTag::TC_OBJECT || tag == StreamTag::TC_ARRAY || 
+                       tag == StreamTag::TC_STRING || tag == StreamTag::TC_LONGSTRING) {
+                // New object/array/string - create node and add to work queue
+                size_t refNodeIndex = createNode();
+                nodes[nodeIndex]->references.push_back(refNodeIndex);
+                nodes[nodeIndex]->referenceOffsets.push_back(currentOffset - 1);  // Store offset (including tag)
+                
+                // Add to work queue for processing
+                workQueue.push({refNodeIndex, currentOffset - 1});
+                
+                // Skip over the object/array/string to continue parsing remaining fields
+                // We need to parse enough to find where it ends
+                currentOffset = skipObjectData(currentOffset - 1);  // Include tag byte
+            } else {
+                throw std::runtime_error("Unexpected tag in object field");
+            }
+        }
+    }
+    
+    // Store object data offset for later reference resolution
+    // For now, create a minimal object representation
+    auto objData = std::make_unique<uint8_t[]>(sizeof(size_t));
+    *reinterpret_cast<size_t*>(objData.get()) = dataOffset;  // Store offset to object data
     nodes[nodeIndex]->object = ObjectGraphPtr(objData.release(), ObjectGraphDeleter());
+    nodes[nodeIndex]->classId = classDescHandleId;
     
     // Assign handle ID
     nodes[nodeIndex]->handleId = nextHandleId++;
