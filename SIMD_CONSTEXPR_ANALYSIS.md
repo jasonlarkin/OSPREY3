@@ -2,7 +2,7 @@
 
 ## Current SIMD Implementation
 
-**What we implemented:**
+**What was implemented:**
 - AVX2 intrinsics for distance calculations
 - Process 4 atom pairs simultaneously
 - Compile-time flag `USE_SIMD` to enable/disable
@@ -207,4 +207,5 @@ for (; i + (chunk_size-1) < num_amber; i += chunk_size) {
 - Clearer intent (SIMD width as constant)
 
 **Priority:** Medium - Current code works, constexpr is polish/optimization
+
 
