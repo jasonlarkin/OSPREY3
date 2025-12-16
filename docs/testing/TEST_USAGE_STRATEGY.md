@@ -65,7 +65,7 @@ java -cp build/classes/java/main edu.duke.cs.osprey.tools.BenchmarkDeepCopy
 **Purpose:** Identify which code paths are exercised by tests
 
 **Tools:**
-- Use `CODE_ANALYSIS_TOOLS.md` for coverage analysis
+- Use `../analysis/CODE_ANALYSIS_TOOLS.md` for coverage analysis
 - Run with coverage flags:
   ```bash
   ./gradlew test --tests "edu.duke.cs.osprey.gmec.TestFindGMEC" \

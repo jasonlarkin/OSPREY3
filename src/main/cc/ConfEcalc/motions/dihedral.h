@@ -2,10 +2,11 @@
 #ifndef CONFECALC_MOTIONS_DIHEDRAL_H
 #define CONFECALC_MOTIONS_DIHEDRAL_H
 
+#include <concepts>
 
 namespace osprey::motions {
 
-	template<typename T>
+	template<std::floating_point T>
 	struct alignas(8) Dihedral {
 
 		const static int32_t id = 0;

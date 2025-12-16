@@ -660,13 +660,12 @@ python findGMEC.py
 ## 9. Documentation References
 
 Related documentation files:
-- `FAST_ITERATION_TIPS.md` - Tips for running tests efficiently
-- `CPP_IMPLEMENTATION_INVENTORY.md` - Details on C++ implementation and tests
-- `TRACE_1CC8_EXECUTION.md` - Details on 1CC8 trace testing
-- `SERIALIZATION_FIXES.md` - Deep copy/serialization testing details
+- `../../FAST_ITERATION_TIPS.md` - Tips for running tests efficiently
+- `../cpp/CPP_IMPLEMENTATION_INVENTORY.md` - Details on C++ implementation and tests
+- `../../SERIALIZATION_FIXES.md` - Deep copy/serialization testing details
 
 ---
 
-*Last Updated: 2025-01-XX*
+*Last Updated: 2025-12-16
 *Generated from codebase analysis*
 

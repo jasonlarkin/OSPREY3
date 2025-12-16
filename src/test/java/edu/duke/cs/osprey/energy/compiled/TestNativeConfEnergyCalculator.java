@@ -10,6 +10,7 @@ import edu.duke.cs.osprey.confspace.Conf;
 import edu.duke.cs.osprey.confspace.compiled.*;
 import edu.duke.cs.osprey.gpu.Structs;
 import edu.duke.cs.osprey.tools.MathTools;
+import edu.duke.cs.osprey.tools.Stopwatch;
 import org.joml.Vector3d;
 import org.junit.jupiter.api.Test;
 
@@ -160,6 +161,7 @@ public class TestNativeConfEnergyCalculator {
 	}
 
 	private void assign(ConfEnergyCalculator confEcalc, int[][] confs, Function<int[],CoordsList> f) {
+		Stopwatch stopwatch = new Stopwatch().start();
 		for (int[] conf : confs) {
 
 			var exp = confEcalc.confSpace().makeCoords(conf);
@@ -168,6 +170,8 @@ public class TestNativeConfEnergyCalculator {
 			var obs = f.apply(conf);
 			assertCoords(conf, exp, obs);
 		}
+		stopwatch.stop();
+		log("assign: %d confs in %s (%.2f confs/s)", confs.length, stopwatch.getTime(2), confs.length/stopwatch.getTimeS());
 	}
 
 
@@ -197,11 +201,14 @@ public class TestNativeConfEnergyCalculator {
 
 		assertThat(energies.length, is(confs.length));
 
+		Stopwatch stopwatch = new Stopwatch().start();
 		for (int i=0; i<confs.length; i++) {
 			var inters = PosInterDist.all(confEcalc.confSpace(), confs[i]);
 			double energy = confEcalc.calcEnergy(confs[i], inters);
 			assertThat("conf " + i, energy, isRelatively(energies[i], epsilon));
 		}
+		stopwatch.stop();
+		log("calcEnergy_all: %d confs in %s (%.2f confs/s)", confs.length, stopwatch.getTime(2), confs.length/stopwatch.getTimeS());
 	}
 
 	private void calcEnergy_cpu_all(ConfSpace confSpace, int[][] confs, double[] energies, double epsilon) {
@@ -414,11 +421,14 @@ public class TestNativeConfEnergyCalculator {
 
 		assertThat(energies.length, is(confs.length));
 
+		Stopwatch stopwatch = new Stopwatch().start();
 		for (int i=0; i<confs.length; i++) {
 			var inters = PosInterDist.all(confEcalc.confSpace(), confs[i]);
 			double energy = confEcalc.minimizeEnergy(confs[i], inters);
 			assertThat("conf " + i, energy, isRelatively(energies[i], epsilon));
 		}
+		stopwatch.stop();
+		log("minimizeEnergy_all: %d confs in %s (%.2f confs/s)", confs.length, stopwatch.getTime(2), confs.length/stopwatch.getTimeS());
 	}
 
 	private void minimizeEnergy_cpu_all(ConfSpace confSpace, int[][] confs, double[] energies, double epsilon) {
@@ -455,6 +465,7 @@ public class TestNativeConfEnergyCalculator {
 
 		assertThat(energies.length, is(confs.length));
 
+		Stopwatch stopwatch = new Stopwatch().start();
 		for (int i=0; i<confs.length; i++) {
 			int[] conf = confs[i];
 
@@ -478,6 +489,8 @@ public class TestNativeConfEnergyCalculator {
 				), 1e-4));
 			}
 		}
+		stopwatch.stop();
+		log("minimize_all: %d confs in %s (%.2f confs/s)", confs.length, stopwatch.getTime(2), confs.length/stopwatch.getTimeS());
 	}
 
 	private void minimize_cpu_all(ConfSpace confSpace, int[][] confs, double[] energies, double epsilon) {

@@ -2,11 +2,12 @@
 #ifndef CONFECALC_MOTIONS_H
 #define CONFECALC_MOTIONS_H
 
+#include <concepts>
 
 namespace osprey {
 
 	// degree of freedom
-	template<typename T>
+	template<std::floating_point T>
 	class Dof {
 		public:
 
@@ -27,10 +28,10 @@ namespace osprey {
 				}
 			}
 
-			virtual T get() const = 0;
+			[[nodiscard]] virtual T get() const = 0;
 			virtual void set(T val) = 0;
 
-			inline T center() const {
+			[[nodiscard]] inline T center() const noexcept {
 				return (min + max)/2;
 			}
 

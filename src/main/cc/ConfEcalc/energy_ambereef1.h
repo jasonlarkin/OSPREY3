@@ -2,6 +2,7 @@
 #ifndef CONFECALC_ENERGY_AMBEREEF1_H
 #define CONFECALC_ENERGY_AMBEREEF1_H
 
+#include <concepts>
 
 namespace osprey::ambereef1 {
 
@@ -17,7 +18,7 @@ namespace osprey::ambereef1 {
 	};
 	ASSERT_JAVA_COMPATIBLE(AtomPairs, 8);
 
-	template<typename T>
+	template<std::floating_point T>
 	struct alignas(8) AtomPairAmber {
 		int32_t atomi1;
 		int32_t atomi2;
@@ -26,7 +27,7 @@ namespace osprey::ambereef1 {
 		T vdwB;
 		// 4 bytes pad, if T = float32_t
 
-		inline T calc(T r, T r2, bool distance_dependent_dielectric) const {
+		[[nodiscard]] inline T calc(T r, T r2, bool distance_dependent_dielectric) const {
 
 			// just in case ...
 			assert(r >= 0.0);
@@ -52,7 +53,7 @@ namespace osprey::ambereef1 {
 	};
 	ASSERT_JAVA_COMPATIBLE_REALS(AtomPairAmber, 24, 32);
 
-	template<typename T>
+	template<std::floating_point T>
 	struct alignas(8) AtomPairEef1 {
 		int32_t atomi1;
 		int32_t atomi2;
@@ -63,7 +64,7 @@ namespace osprey::ambereef1 {
 		T alpha1;
 		T alpha2;
 
-		inline T calc(T r, T r2) const {
+		[[nodiscard]] inline T calc(T r, T r2) const {
 
 			// just in case ...
 			assert(r >= 0.0);
@@ -85,8 +86,8 @@ namespace osprey::ambereef1 {
 	};
 	ASSERT_JAVA_COMPATIBLE_REALS(AtomPairEef1, 32, 56);
 
-	template<typename T>
-	static T calc(const Array<Real3<T>> & atoms, const Params & params, const AtomPairs & pairs) {
+	template<std::floating_point T>
+	[[nodiscard]] static T calc(const Array<Real3<T>> & atoms, const Params & params, const AtomPairs & pairs) {
 
 		T energy = 0.0;
 
@@ -117,8 +118,8 @@ namespace osprey::ambereef1 {
 		return energy;
 	}
 
-	template<typename T>
-	T calc_energy(Assignment<T> & assignment, const Array<PosInter<T>> & inters) {
+	template<std::floating_point T>
+	[[nodiscard]] T calc_energy(Assignment<T> & assignment, const Array<PosInter<T>> & inters) {
 
 		const Params & params = *reinterpret_cast<const Params *>(assignment.conf_space.get_params());
 

@@ -2,10 +2,11 @@
 #ifndef CONFECALC_REAL3_H
 #define CONFECALC_REAL3_H
 
+#include <concepts>
 
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	class alignas(8) Real3 {
 
 		public:
@@ -34,10 +35,10 @@ namespace osprey {
 				z -= v.z;
 			}
 
-			inline T len_sq() const {
+			[[nodiscard]] inline T len_sq() const noexcept {
 				return x*x + y*y + z*z;
 			}
-			inline T len() const {
+			[[nodiscard]] inline T len() const {
 				return std::sqrt(len_sq());
 			}
 
@@ -54,7 +55,7 @@ namespace osprey {
 				z = -z;
 			}
 
-			inline T dot(const Real3<T> v) const {
+			[[nodiscard]] inline T dot(const Real3<T> v) const noexcept {
 				return x*v.x + y*v.y + z*v.z;
 			}
 
@@ -65,8 +66,8 @@ namespace osprey {
 	ASSERT_JAVA_COMPATIBLE_REALS(Real3, 16, 24);
 	ASSERT_COPYABLE_REALS(Real3);
 
-	template<typename T>
-	inline Real3<T> operator - (const Real3<T> & v) {
+	template<std::floating_point T>
+	inline Real3<T> operator - (const Real3<T> & v) noexcept {
 		return {
 			-v.x,
 			-v.y,
@@ -74,8 +75,8 @@ namespace osprey {
 		};
 	}
 
-	template<typename T>
-	inline Real3<T> operator + (const Real3<T> & a, const Real3<T> & b) {
+	template<std::floating_point T>
+	inline Real3<T> operator + (const Real3<T> & a, const Real3<T> & b) noexcept {
 		return {
 			a.x + b.x,
 			a.y + b.y,
@@ -83,8 +84,8 @@ namespace osprey {
 		};
 	}
 
-	template<typename T>
-	inline Real3<T> operator - (const Real3<T> & a, const Real3<T> & b) {
+	template<std::floating_point T>
+	inline Real3<T> operator - (const Real3<T> & a, const Real3<T> & b) noexcept {
 		return {
 			a.x - b.x,
 			a.y - b.y,
@@ -92,8 +93,8 @@ namespace osprey {
 		};
 	}
 
-	template<typename T>
-	inline Real3<T> cross(const Real3<T> & a, const Real3<T> & b) {
+	template<std::floating_point T>
+	inline Real3<T> cross(const Real3<T> & a, const Real3<T> & b) noexcept {
 		return {
 			a.y*b.z - a.z*b.y,
 			a.z*b.x - a.x*b.z,
@@ -101,7 +102,7 @@ namespace osprey {
 		};
 	}
 
-	template<typename T>
+	template<std::floating_point T>
 	std::ostream & operator << (std::ostream & out, const Real3<T> & v) {
 		auto w = fmt::real_width(out);
 		out << "("
@@ -111,16 +112,16 @@ namespace osprey {
 		return out;
 	}
 
-	template<typename T>
-	static T distance_sq(const Real3<T> & a, const Real3<T> & b) {
+	template<std::floating_point T>
+	[[nodiscard]] static T distance_sq(const Real3<T> & a, const Real3<T> & b) noexcept {
 		T dx = a.x - b.x;
 		T dy = a.y - b.y;
 		T dz = a.z - b.z;
 		return dx*dx + dy*dy + dz*dz;
 	}
 
-	template<typename T>
-	static T distance(const Real3<T> & a, const Real3<T> & b) {
+	template<std::floating_point T>
+	[[nodiscard]] static T distance(const Real3<T> & a, const Real3<T> & b) {
 		return std::sqrt(distance_sq(a, b));
 	}
 

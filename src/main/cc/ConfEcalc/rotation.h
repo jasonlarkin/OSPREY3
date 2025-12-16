@@ -2,19 +2,20 @@
 #ifndef CONFECALC_ROTATION_H
 #define CONFECALC_ROTATION_H
 
+#include <concepts>
 
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	const T Pi = 3.14159265358979323846;
 
-	template<typename T>
+	template<std::floating_point T>
 	const T TwoPi = Pi<T>*2;
 
-	template<typename T>
+	template<std::floating_point T>
 	const T HalfPi = Pi<T>/2;
 
-	template<typename T>
+	template<std::floating_point T>
 	T normalize_mpi_pi(T radians) {
 
 		assert (std::isfinite(radians));
@@ -30,7 +31,7 @@ namespace osprey {
 	}
 
 	// a 3x3 matrix representation of a rotation
-	template<typename T>
+	template<std::floating_point T>
 	class Rotation {
 		public:
 
@@ -118,7 +119,7 @@ namespace osprey {
 			}
 	};
 
-	template<typename T>
+	template<std::floating_point T>
 	inline Real3<T> operator * (const Rotation<T> & r, const Real3<T> & v) {
 		return {
 			r.xaxis.dot(v),

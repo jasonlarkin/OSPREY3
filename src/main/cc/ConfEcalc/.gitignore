@@ -1,2 +1,11 @@
 
 cmake-*
+build/
+test_concepts
+test_concepts_demo
+test_concepts_improvements
+test_concepts_compile_errors
+test_nodiscard_demo
+test_all_features_demo
+*.o
+*.so

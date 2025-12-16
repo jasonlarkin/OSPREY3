@@ -2,10 +2,11 @@
 #ifndef CONFECALC_MINIMIZATION_H
 #define CONFECALC_MINIMIZATION_H
 
+#include <concepts>
 
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	class DofValues {
 		public:
 
@@ -24,7 +25,7 @@ namespace osprey {
 			Array<T> x;
 	};
 
-	template<typename T>
+	template<std::floating_point T>
 	class Dofs {
 		public:
 
@@ -98,7 +99,7 @@ namespace osprey {
 				delete dofs;
 			}
 
-			inline int get_size() const {
+			inline int get_size() const noexcept {
 				return dofs->get_size();
 			}
 
@@ -112,12 +113,12 @@ namespace osprey {
 				}
 			}
 
-			inline T eval_efunc(Array<T> & x) {
+			[[nodiscard]] inline T eval_efunc(Array<T> & x) {
 				set(x);
 				return efunc(assignment, inters);
 			}
 
-			inline T eval_efunc(int d, T x) {
+			[[nodiscard]] inline T eval_efunc(int d, T x) {
 				Dof<T> & dof = *(*dofs)[d];
 				dof.set(x);
 				return efunc(assignment, dof.get_inters());
@@ -128,7 +129,7 @@ namespace osprey {
 	};
 
 
-	template<typename T>
+	template<std::floating_point T>
 	static const T tolerance;
 	template<>
 	const float32_t tolerance<float32_t> = 1e-3;
@@ -136,15 +137,15 @@ namespace osprey {
 	const float64_t tolerance<float64_t> = 1e-6;
 
 	// scale abs(f) by tolerance, unless f is very small
-	template<typename T>
-	static T scaled_tolerance(T f) {
+	template<std::floating_point T>
+	[[nodiscard]] static T scaled_tolerance(T f) {
 		return tolerance<T>*std::max(static_cast<T>(1.0), std::abs(f));
 	}
 
 
 	// search the line by fitting a local quadratic model, taking a step, and then surfing the slope
-	template<typename T>
-	static T line_search_surf(Dofs<T> & dofs, int d, T x, T & step) {
+	template<std::floating_point T>
+	[[nodiscard]] static T line_search_surf(Dofs<T> & dofs, int d, T x, T & step) {
 
 		auto f = [&dofs, d](T x) -> T {
 			return dofs.eval_efunc(d, x);
@@ -352,16 +353,16 @@ namespace osprey {
 		return xstar;
 	}
 
-	template<typename T>
+	template<std::floating_point T>
 	struct LineSearchState {
 		T first_step = 1.0;
 		T last_step = 1.0;
 	};
 
-	template<typename T>
+	template<std::floating_point T>
 	using LineSearchFunction = T (*)(Dofs<T> &, int, T, T &);
 
-	template<typename T>
+	template<std::floating_point T>
 	static void minimize_ccd(Dofs<T> & dofs, DofValues<T> & here) {
 
 		// get the current objective function value

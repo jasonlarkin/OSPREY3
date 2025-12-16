@@ -1,0 +1,137 @@
+name: C++20 Modernization Tests
+
+on:
+  push:
+    branches:
+      - feature/cpp20-modernization
+      - develop
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+    
+    - name: Build C++ library with tests
+      working-directory: src/main/cc/ConfEcalc
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DBUILD_TESTS=ON
+        cmake --build . -j$(nproc)
+    
+    - name: Run Google Test suite
+      working-directory: src/main/cc/ConfEcalc/build
+      run: |
+        ctest --output-on-failure -V
+    
+    - name: Verify exported symbols
+      run: |
+        nm -D src/main/resources/linux-x86-64/libConfEcalc.so | grep -E "(version_major|version_minor)" || exit 1
+    
+    - name: Run C++ demonstration tests
+      working-directory: src/main/cc/ConfEcalc
+      run: |
+        cd build
+        # Compile and run concepts demo
+        g++ -std=c++20 -I. ../test_concepts.cpp -o test_concepts && ./test_concepts || true
+        g++ -std=c++20 -I. ../test_concepts_demo.cpp -o test_concepts_demo && ./test_concepts_demo || true
+        g++ -std=c++20 -I. ../test_concepts_improvements.cpp -o test_concepts_improvements && ./test_concepts_improvements || true
+        g++ -std=c++20 -I. ../test_nodiscard_demo.cpp -o test_nodiscard_demo && ./test_nodiscard_demo || true
+    
+    - name: Run Java integration tests
+      run: |
+        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon
+    
+    - name: Check for compilation warnings
+      working-directory: src/main/cc/ConfEcalc/build
+      run: |
+        # Rebuild with warnings as errors to catch issues
+        cmake .. -DCMAKE_CXX_FLAGS="-Werror -Wall -Wextra -pedantic"
+        cmake --build . 2>&1 | tee build.log
+        if grep -i "warning" build.log; then
+          echo "Warnings detected in build"
+          exit 1
+        fi
+    
+    - name: Verify C++20 standard
+      working-directory: src/main/cc/ConfEcalc
+      run: |
+        grep -q "CMAKE_CXX_STANDARD 20" CMakeLists.txt || exit 1
+
+  compare-with-main:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+    
+    - name: Build and test main branch
+      run: |
+        git checkout main
+        cd src/main/cc/ConfEcalc
+        mkdir -p build-main
+        cd build-main
+        cmake ..
+        cmake --build . -j$(nproc)
+        cd ../../../../..
+        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon 2>&1 | tee main-test-results.txt
+    
+    - name: Build and test feature branch
+      run: |
+        git checkout ${{ github.head_ref || github.ref_name }}
+        cd src/main/cc/ConfEcalc
+        mkdir -p build-feature
+        cd build-feature
+        cmake ..
+        cmake --build . -j$(nproc)
+        cd ../../../../..
+        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon 2>&1 | tee feature-test-results.txt
+    
+    - name: Compare test results
+      run: |
+        echo "=== Main Branch Test Results ==="
+        cat main-test-results.txt | tail -20
+        echo ""
+        echo "=== Feature Branch Test Results ==="
+        cat feature-test-results.txt | tail -20
+        echo ""
+        echo "=== Summary ==="
+        MAIN_PASSED=$(grep -c "PASSED" main-test-results.txt || echo "0")
+        FEATURE_PASSED=$(grep -c "PASSED" feature-test-results.txt || echo "0")
+        echo "Main branch: $MAIN_PASSED tests passed"
+        echo "Feature branch: $FEATURE_PASSED tests passed"
+        if [ "$FEATURE_PASSED" -lt "$MAIN_PASSED" ]; then
+          echo "ERROR: Feature branch has fewer passing tests"
+          exit 1
+        fi
+

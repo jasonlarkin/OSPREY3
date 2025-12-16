@@ -2,12 +2,13 @@
 #ifndef CONFECALC_CONFSPACE_H
 #define CONFECALC_CONFSPACE_H
 
+#include <concepts>
 
 namespace osprey {
 
 	const int32_t StaticPos = -1;
 
-	template<typename T>
+	template<std::floating_point T>
 	struct Conf {
 		int64_t atom_coords_offset;
 		int64_t atom_molis_offset;
@@ -27,7 +28,7 @@ namespace osprey {
 	};
 	ASSERT_JAVA_COMPATIBLE(Pos, 16);
 
-	template<typename T>
+	template<std::floating_point T>
 	class ConfSpace {
 		public:
 			ConfSpace() = delete; // created only on the Java side
@@ -265,7 +266,7 @@ namespace osprey {
 	};
 	ASSERT_JAVA_COMPATIBLE_REALS(ConfSpace, 72, 72);
 
-	template<typename T>
+	template<std::floating_point T>
 	std::ostream & operator << (std::ostream & out, const ConfSpace<T> & conf_space) {
 
 		// show the conf space
