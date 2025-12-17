@@ -2,15 +2,16 @@
 #ifndef CONFECALC_ATOMS_H
 #define CONFECALC_ATOMS_H
 
+#include <concepts>
 
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	static void write_atom(std::ostream & out, int i, const Real3<T> & atom) {
 		out << fmt::make_indents << "[" << std::setw(5) << i << "] " << atom << std::endl;
 	}
 
-	template<typename T>
+	template<std::floating_point T>
 	std::ostream & operator << (std::ostream & out, const Array<Real3<T>> & atoms) {
 
 		out << fmt::set_real(12, 6);

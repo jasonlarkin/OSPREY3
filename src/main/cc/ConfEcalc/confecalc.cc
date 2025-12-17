@@ -1,4 +1,5 @@
 
+#include <concepts>
 #include "global.h"
 #include "array.h"
 #include "formats.h"
@@ -16,18 +17,17 @@
 #define API extern "C" [[maybe_unused]]
 
 
-API int version_major() {
+API [[nodiscard]] int version_major() noexcept {
 	return ConfEcalc_VERSION_MAJOR;
 }
 
-API int version_minor() {
+API [[nodiscard]] int version_minor() noexcept {
 	return ConfEcalc_VERSION_MINOR;
 }
 
-
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	static void assign(const ConfSpace<T> & conf_space, const int32_t conf[], Array<Real3<T>> & out_coords) {
 		Assignment<T> assignment(conf_space, conf);
 		out_coords.copy_from(assignment.atoms);
@@ -45,8 +45,8 @@ API void assign_f64(const osprey::ConfSpace<float64_t> & conf_space, const int32
 
 namespace osprey {
 
-	template<typename T>
-	static T calc(const ConfSpace<T> & conf_space,
+	template<std::floating_point T>
+	[[nodiscard]] static T calc(const ConfSpace<T> & conf_space,
 	              const int32_t conf[],
 	              const Array<PosInter<T>> & inters,
 	              EnergyFunction<T> efunc,
@@ -77,8 +77,8 @@ API float64_t calc_amber_eef1_f64(const osprey::ConfSpace<float64_t> & conf_spac
 
 namespace osprey {
 
-	template<typename T>
-	static T minimize(const ConfSpace<T> & conf_space,
+	template<std::floating_point T>
+	[[nodiscard]] static T minimize(const ConfSpace<T> & conf_space,
 	                  const int32_t conf[],
 	                  const Array<PosInter<T>> & inters,
 	                  EnergyFunction<T> efunc,

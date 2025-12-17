@@ -2,10 +2,11 @@
 #ifndef CONFECALC_ASSIGNMENT_H
 #define CONFECALC_ASSIGNMENT_H
 
+#include <concepts>
 
 namespace osprey {
 
-	template<typename T>
+	template<std::floating_point T>
 	class Assignment {
 
 		public:

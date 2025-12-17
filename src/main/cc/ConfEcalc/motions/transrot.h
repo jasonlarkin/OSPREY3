@@ -2,10 +2,11 @@
 #ifndef CONFECALC_MOTIONS_TRANSROT_H
 #define CONFECALC_MOTIONS_TRANSROT_H
 
+#include <concepts>
 
 namespace osprey::motions {
 
-	template<typename T>
+	template<std::floating_point T>
 	struct alignas(8) TranslationRotation {
 
 		const static int32_t id = 1;

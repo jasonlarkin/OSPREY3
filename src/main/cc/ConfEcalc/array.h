@@ -2,12 +2,14 @@
 #ifndef CONFECALC_ARRAY_H
 #define CONFECALC_ARRAY_H
 
+#include <type_traits>
 
 namespace osprey {
 
 	// a very simple fixed-length array,
 	// that can be allocated from either the Java or c++ side
 	template<typename T>
+	requires std::is_trivially_copyable_v<T>
 	class Array {
 		public:
 
@@ -19,11 +21,11 @@ namespace osprey {
 				}
 			}
 
-			inline int64_t get_size() const {
+			inline int64_t get_size() const noexcept {
 				return size;
 			}
 
-			inline T & operator [] (int64_t i) {
+			inline T & operator [] (int64_t i) noexcept {
 
 				// just in case ...
 				assert (i >= 0);
@@ -32,7 +34,7 @@ namespace osprey {
 				return pointer()[i];
 			}
 
-			inline const T & operator [] (int64_t i) const {
+			inline const T & operator [] (int64_t i) const noexcept {
 
 				// just in case ...
 				assert (i >= 0);
@@ -74,7 +76,7 @@ namespace osprey {
 			int64_t size;
 			T * things; // nullptr when created from java
 
-			T * pointer() {
+			T * pointer() noexcept {
 				if (things == nullptr) {
 					// when created from java, the coords follow the class layout
 					return reinterpret_cast<T *>(this + 1);
@@ -84,7 +86,7 @@ namespace osprey {
 				}
 			}
 
-			const T * pointer() const {
+			const T * pointer() const noexcept {
 				if (things == nullptr) {
 					// when created from java, the coords follow the class layout
 					return reinterpret_cast<const T *>(this + 1);
@@ -99,6 +101,7 @@ namespace osprey {
 	// a size-tracking array backed by Array
 	// useful when you don't know the size of the array in advance, but you can easily bound it
 	template<typename T>
+	requires std::is_trivially_copyable_v<T>
 	class AutoArray {
 		public:
 
@@ -108,15 +111,15 @@ namespace osprey {
 				array(capacity), size(0) {
 			}
 
-			int64_t get_capacity() const {
+			int64_t get_capacity() const noexcept {
 				return array.get_size();
 			}
 
-			int64_t get_size() const {
+			int64_t get_size() const noexcept {
 				return size;
 			}
 
-			inline T & operator [] (int64_t i) {
+			inline T & operator [] (int64_t i) noexcept {
 
 				// just in case ...
 				assert (i < size);
@@ -124,7 +127,7 @@ namespace osprey {
 				return array[i];
 			}
 
-			inline const T & operator [] (int64_t i) const {
+			inline const T & operator [] (int64_t i) const noexcept {
 
 				// just in case ...
 				assert (i < size);
