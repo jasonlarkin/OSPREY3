@@ -3,6 +3,10 @@
 #define CONFECALC_MINIMIZATION_H
 
 #include <concepts>
+#include <cstdlib>
+#ifdef USE_OPENMP
+#include <omp.h>
+#endif
 
 namespace osprey {
 
@@ -384,7 +388,48 @@ namespace osprey {
 
 			// update all the dofs using line search
 			next.set(here);
-			for (int d=0; d<dofs.get_size(); d++) {
+#ifdef USE_OPENMP
+			// NOTE:
+			// OpenMP parallelization here exists for performance experimentation, but it can change
+			// floating-point rounding/order and cause tiny numeric drift in strict regression tests.
+			// Keep it opt-in via env var to preserve deterministic defaults.
+			const bool use_parallel_ccd =
+				(std::getenv("OSPREY_MINIMIZE_CCD_OMP") != nullptr)
+				&& (std::getenv("OSPREY_MINIMIZE_CCD_OMP")[0] != '\0')
+				&& (std::getenv("OSPREY_MINIMIZE_CCD_OMP")[0] != '0');
+			if (use_parallel_ccd) {
+				#pragma omp parallel for schedule(static) default(none) \
+					shared(dofs, next, line_search_states, line_search, iter, here)
+				for (int d=0; d<dofs.get_size(); d++) {
+					Dof<T> & dof = dofs[d];
+					LineSearchState<T> & state = line_search_states[d];
+
+					// get the step size, try to make it adaptive (based on historical steps if possible; else on step #)
+					T step;
+					if (std::abs(state.last_step) > tolerance<T> && std::abs(state.first_step) > tolerance<T>) {
+						step = dof.initial_step_size*std::abs(state.last_step/state.first_step);
+					} else {
+						step = dof.initial_step_size/std::pow(iter + 1, 3);
+					}
+
+					// get the next x value for this dof
+					// Critical section needed because line_search modifies shared assignment state
+					T new_x;
+					#pragma omp critical(minimize_ccd_line_search)
+					{
+						new_x = line_search(dofs, d, next.x[d], step);
+					}
+					next.x[d] = new_x;
+
+					if (iter == 0) {
+						state.first_step = step;
+					}
+					state.last_step = step;
+				}
+			} else
+#endif
+			{
+				for (int d=0; d<dofs.get_size(); d++) {
 
 				Dof<T> & dof = dofs[d];
 				LineSearchState<T> & state = line_search_states[d];
@@ -398,12 +443,19 @@ namespace osprey {
 				}
 
 				// get the next x value for this dof
-				next.x[d] = line_search(dofs, d, next.x[d], step);
+				// Determinism note:
+				// This loop updates shared assignment state via line_search(), so OpenMP parallelization
+				// requires a critical section and still produces schedule-dependent ordering.
+				// Keep it serial by default for reproducibility and stable regression tests.
+				T new_x;
+				new_x = line_search(dofs, d, next.x[d], step);
+				next.x[d] = new_x;
 
 				if (iter == 0) {
 					state.first_step = step;
 				}
 				state.last_step = step;
+			}
 			}
 
 			// how much did we improve?

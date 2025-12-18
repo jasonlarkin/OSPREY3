@@ -3,6 +3,19 @@
 #define CONFECALC_ENERGY_AMBEREEF1_H
 
 #include <concepts>
+// Only needed for SIMD runtime dispatch environment overrides.
+#ifdef USE_SIMD
+#include <cstdlib>
+#include <cstring>
+#endif
+// IMPORTANT:
+// `energy_ambereef1_simd.h` is included *inside* `namespace osprey::ambereef1`.
+// If `<immintrin.h>` is first included inside that namespace, the include guards will
+// prevent it from later being included at global scope, and intrinsics like `::__m256d`
+// / `::_mm256_*` won't exist. Include it here at global scope first when SIMD is enabled.
+#ifdef USE_SIMD
+	#include <immintrin.h>
+#endif
 
 namespace osprey::ambereef1 {
 
@@ -86,8 +99,54 @@ namespace osprey::ambereef1 {
 	};
 	ASSERT_JAVA_COMPATIBLE_REALS(AtomPairEef1, 32, 56);
 
+#ifdef USE_SIMD
+	#include "cpu_detect.h"
+	#include "energy_ambereef1_simd.h"
+	
+	static inline double calc_dispatch(const Array<Real3<double>> & atoms, const Params & params, const AtomPairs & pairs) {
+		using CalcFunc = double (*)(const Array<Real3<double>> &, const Params &, const AtomPairs &);
+		static CalcFunc best_calc = nullptr;
+
+		if (best_calc == nullptr) {
+			// Environment overrides
+			// Default to scalar for numerical stability/reproducibility. Opt-in to runtime SIMD dispatch.
+			const char * use_simd = std::getenv("OSPREY_USE_SIMD");
+			const char * force_scalar = std::getenv("OSPREY_FORCE_SCALAR");
+			const char * use_fast_exp = std::getenv("OSPREY_USE_FAST_EXP");
+			const bool fast_exp = (use_fast_exp != nullptr && std::strcmp(use_fast_exp, "1") == 0);
+
+			const bool simd_enabled = (use_simd != nullptr && std::strcmp(use_simd, "1") == 0);
+
+			if (!simd_enabled || (force_scalar != nullptr && std::strcmp(force_scalar, "1") == 0)) {
+				best_calc = calc_scalar;
+			} else {
+				auto caps = osprey::cpu_detect::detect_cpu_capabilities();
+
+				#ifdef USE_AVX512
+				if (caps.has_avx512f && caps.has_avx512dq) {
+					best_calc = fast_exp ? calc_avx512_fast_exp : calc_avx512;
+				} else
+				#endif
+				if (caps.has_avx2) {
+					best_calc = fast_exp ? calc_avx2_fast_exp : calc_avx2;
+				} else {
+					best_calc = calc_scalar;
+				}
+			}
+		}
+
+		return best_calc(atoms, params, pairs);
+	}
+#endif
+
 	template<std::floating_point T>
 	[[nodiscard]] static T calc(const Array<Real3<T>> & atoms, const Params & params, const AtomPairs & pairs) {
+#ifdef USE_SIMD
+		// Use runtime dispatch for double precision
+		if constexpr (std::is_same_v<T, double>) {
+			return calc_dispatch(atoms, params, pairs);
+		}
+#endif
 
 		T energy = 0.0;
 
@@ -151,6 +210,5 @@ namespace osprey::ambereef1 {
 		return energy;
 	}
 }
-
 
 #endif //CONFECALC_ENERGY_AMBEREEF1_H

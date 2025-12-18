@@ -528,6 +528,23 @@ C++ tests use Google Test (gtest) framework. Tests are organized by C++ module.
 ./gradlew compileJava compileTestJava
 ```
 
+Native rebuild note (Gradle):
+- If you rebuilt ConfEcalc via CMake, Gradle may not notice the updated `.so` and can treat `:test` as UP-TO-DATE.
+- Force execution with `--rerun-tasks` when validating native changes.
+
+ConfEcalc SIMD/precision correctness gate (recommended before merging):
+
+```bash
+./gradlew test --rerun-tasks \
+  --tests "edu.duke.cs.osprey.energy.compiled.TestEnergyComparison" \
+  --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator"
+```
+
+Relevant runtime controls:
+- `OSPREY_FORCE_SIMD=1`: enable SIMD dispatch where supported/implemented
+- `OSPREY_FORCE_SCALAR=1`: force scalar path
+- `OSPREY_MINIMIZE_CCD_OMP=1`: enable OpenMP CCD path (can change rounding/order; use only for perf experiments)
+
 ### C++ Tests (CMake/CTest)
 ```bash
 # Build and run ConfEcalc tests

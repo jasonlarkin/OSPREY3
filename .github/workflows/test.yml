@@ -4,11 +4,15 @@ on:
   push:
     branches:
       - 'ten63-demo/**'
+      - 'feature/**'
       - main
+      - develop
   pull_request:
     branches:
       - main
+      - develop
       - 'ten63-demo/**'
+      - 'feature/**'
 
 jobs:
   test:
@@ -96,9 +100,76 @@ jobs:
         path: test-output.log
         retention-days: 7
 
+  test-avx512:
+    name: Test AVX-512 Support
+    runs-on: ubuntu-latest
+    if: contains(github.ref, 'simd') || contains(github.ref, 'SIMD')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Check CPU AVX-512 support
+      run: |
+        echo "## CPU Information" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### CPU Model" >> $GITHUB_STEP_SUMMARY
+        lscpu | grep -E "Model name|Architecture|CPU op-mode" >> $GITHUB_STEP_SUMMARY || true
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### CPU Flags" >> $GITHUB_STEP_SUMMARY
+        cat /proc/cpuinfo | grep flags | head -1 >> $GITHUB_STEP_SUMMARY || true
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### AVX-512 Support Check" >> $GITHUB_STEP_SUMMARY
+        if grep -q "avx512f" /proc/cpuinfo; then
+          echo "AVX-512F is supported" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "AVX-512F is NOT supported" >> $GITHUB_STEP_SUMMARY
+        fi
+        if grep -q "avx512dq" /proc/cpuinfo; then
+          echo "AVX-512DQ is supported" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "AVX-512DQ is NOT supported" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Full CPU Flags" >> $GITHUB_STEP_SUMMARY
+        cat /proc/cpuinfo | grep flags | head -1 | tr ' ' '\n' | grep -E "avx|sse|fma" >> $GITHUB_STEP_SUMMARY || true
+    
+    - name: Build C++ with AVX-512
+      run: |
+        cd src/main/cc/ConfEcalc
+        cmake -B build -DENABLE_SIMD=ON -DUSE_AVX512=ON -DCMAKE_CXX_FLAGS="-mavx512f -mavx512dq -mfma"
+        cmake --build build 2>&1 | tee build.log
+        echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+          echo "Build succeeded" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "Build failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        tail -50 build.log >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Verify AVX-512 in binary
+      if: success()
+      run: |
+        cd src/main/cc/ConfEcalc/build
+        if [ -f libConfEcalc.so ]; then
+          echo "## Binary Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### AVX-512 Instructions Found" >> $GITHUB_STEP_SUMMARY
+          AVX512_COUNT=$(objdump -d libConfEcalc.so 2>/dev/null | grep -E "(vaddpd|vmulpd|vsubpd|vbroadcastsd|vmovapd|vfmadd|vsqrtpd|zmm)" | wc -l || echo "0")
+          echo "Found $AVX512_COUNT AVX-512 related instructions" >> $GITHUB_STEP_SUMMARY
+          if [ "$AVX512_COUNT" -gt 0 ]; then
+            echo "AVX-512 instructions present in binary" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No AVX-512 instructions found (may be using AVX2 fallback)" >> $GITHUB_STEP_SUMMARY
+          fi
+        fi
+
   summary:
     name: Test Summary
-    needs: test
+    needs: [test, test-avx512]
     runs-on: ubuntu-latest
     if: always()
     
