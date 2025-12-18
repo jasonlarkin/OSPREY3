@@ -71,30 +71,32 @@ namespace osprey {
 				size = smaller_size;
 			}
 
+		// Public accessor for raw pointer (needed for SIMD performance optimization)
+		// Use with caution - no bounds checking!
+		T * pointer() {
+			if (things == nullptr) {
+				// when created from java, the coords follow the class layout
+				return reinterpret_cast<T *>(this + 1);
+			} else {
+				// when created from C++, the coords are allocated on the heap
+				return things;
+			}
+		}
+
+		const T * pointer() const {
+			if (things == nullptr) {
+				// when created from java, the coords follow the class layout
+				return reinterpret_cast<const T *>(this + 1);
+			} else {
+				// when created from C++, the coords are allocated on the heap
+				return things;
+			}
+		}
+
 		private:
 
 			int64_t size;
 			T * things; // nullptr when created from java
-
-			T * pointer() noexcept {
-				if (things == nullptr) {
-					// when created from java, the coords follow the class layout
-					return reinterpret_cast<T *>(this + 1);
-				} else {
-					// when created from C++, the coords are allocated on the heap
-					return things;
-				}
-			}
-
-			const T * pointer() const noexcept {
-				if (things == nullptr) {
-					// when created from java, the coords follow the class layout
-					return reinterpret_cast<const T *>(this + 1);
-				} else {
-					// when created from C++, the coords are allocated on the heap
-					return things;
-				}
-			}
 	};
 	ASSERT_JAVA_COMPATIBLE(Array<int>, 16);
 

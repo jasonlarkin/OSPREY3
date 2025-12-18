@@ -3,6 +3,11 @@
 #define CONFECALC_MOTIONS_TRANSROT_H
 
 #include <concepts>
+#include <cstdlib>
+#include <cstring>
+#ifdef USE_SIMD
+#include "transrot_simd.h"
+#endif
 
 namespace osprey::motions {
 
@@ -116,7 +121,21 @@ namespace osprey::motions {
 				}
 
 				void apply() {
-
+#ifdef USE_SIMD
+					if constexpr (std::is_same_v<T, double>) {
+						// Default to scalar for reproducibility; opt-in to SIMD via env.
+						static const bool use_simd =
+							([]() {
+								const char * v = std::getenv("OSPREY_USE_SIMD");
+								return (v != nullptr && std::strcmp(v, "1") == 0);
+							})();
+						if (use_simd) {
+							apply_transrot_avx2_impl<T>(*this);
+							return;
+						}
+					}
+#endif
+					// Scalar fallback
 					// invert the current transform
 					transform_current.translation.negate();
 					transform_current.rotation.invert();
@@ -147,6 +166,12 @@ namespace osprey::motions {
 			private:
 				AutoArray<int32_t> modified_atomi;
 				Transform transform_current;
+				
+#ifdef USE_SIMD
+				// Friend function for SIMD optimization
+				template<std::floating_point U>
+				friend void apply_transrot_avx2_impl(typename TranslationRotation<U>::TransRotDofs&);
+#endif
 
 				void add_modified_posi(int32_t posi) {
 
