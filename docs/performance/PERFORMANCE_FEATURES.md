@@ -241,18 +241,16 @@ implementation("com.hazelcast:hazelcast:4.0")
 
 ### Current SIMD Status
 
-**Finding:** **No explicit SIMD usage found in OSPREY C++ code**
+**Finding:** Explicit SIMD exists in ConfEcalc (x86-64) and is selectable at runtime.
 
-**Analysis:**
-- Searched for: `__m128`, `__m256`, `avx`, `sse`, `neon`, `simd`
-- No explicit SIMD intrinsics found
-- No vectorization directives found
-- No explicit SIMD libraries used
+**Location:**
+- `src/main/cc/ConfEcalc/energy_ambereef1_simd.h` (AVX2/AVX-512 implementations)
+- `src/main/cc/ConfEcalc/energy_ambereef1.h` (dispatch and defaults)
+- `src/main/cc/ConfEcalc/{rotation_simd.h,real3_simd.h}` (microkernels)
 
-**Potential SIMD Opportunities:**
-- Energy calculations (forcefield computations)
-- Array operations in `ConfEcalc`
-- Could benefit from AVX2/AVX-512 for energy matrix operations
+**Controls:**
+- Default behavior is conservative for correctness (scalar unless explicitly enabled where applicable).
+- Bench binaries can force a specific implementation (`benchmark_scalar_only`, `benchmark_avx2_only`, `benchmark_avx512_only`).
 
 ### Compiler Auto-Vectorization
 
@@ -271,21 +269,17 @@ implementation("com.hazelcast:hazelcast:4.0")
 
 ### Current OpenMP Status
 
-**Finding:** **No OpenMP usage found in OSPREY**
+**Finding:** OpenMP exists in ConfEcalc CCD minimization but is opt-in for determinism.
 
-**Analysis:**
-- Searched for: `#pragma omp`, `omp_`, `OpenMP`
-- No OpenMP directives found
-- No OpenMP library linking
+**Location:**
+- `src/main/cc/ConfEcalc/minimization.h` (`minimize_ccd`)
 
-**Why Not Used:**
-- OSPREY uses Java threading for parallelism
-- C++ code is called from Java, parallelism handled at Java level
-- Task parallelism in Java, not loop-level parallelism in C++
+**Build control:**
+- `src/main/cc/ConfEcalc/CMakeLists.txt`: `ENABLE_OPENMP` controls whether OpenMP is enabled and `USE_OPENMP` is defined.
 
-**Potential Use Cases:**
-- Could parallelize loops in `ConfEcalc` energy calculations
-- Currently single-threaded C++ code called from multi-threaded Java
+**Runtime control:**
+- `OSPREY_MINIMIZE_CCD_OMP=1` enables the OpenMP path inside CCD minimization.
+- Default is serial/deterministic to avoid schedule-dependent floating-point drift in strict f64 regression tests.
 
 ---
 

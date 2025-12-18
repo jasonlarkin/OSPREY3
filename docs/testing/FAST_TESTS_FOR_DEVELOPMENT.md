@@ -173,6 +173,13 @@ This document categorizes OSPREY tests by execution speed to enable fast develop
 - **Tests:** Java vs C++ energy calculator comparison
 - **Run:** `./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestEnergyComparison"`
 
+**Native rebuild note (Gradle):**
+- If you rebuild ConfEcalc via CMake, Gradle may not detect the updated `.so` and can skip `:test` as UP-TO-DATE.
+- Force execution with: `./gradlew test --rerun-tasks --tests "..."`
+
+**Determinism note (CCD):**
+- CCD OpenMP is opt-in via `OSPREY_MINIMIZE_CCD_OMP=1`. Default is deterministic/serial to keep strict f64 tests stable.
+
 ### Integration Tests - Minimization
 
 **TestMinimization**
