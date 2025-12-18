@@ -2,8 +2,46 @@
 # temp folders
 /build
 /buildSrc/build
+buildSrc/.gradle/
 **/*.egg-info
 **/*.pyc
+
+# analysis / benchmarking artifacts (local-only)
+/tmp/
+/plots/
+/perf_results/
+**/perf_results/
+**/perf.data
+**/perf.data.*
+
+# ConfEcalc local build artifacts
+src/main/cc/ConfEcalc/build/
+src/main/cc/ConfEcalc/build-integrate/
+src/main/cc/ConfEcalc/build-*/
+
+# generated benchmark outputs (repo-root)
+/benchmark_results.csv
+/benchmark_medium_system.csv
+/arithmetic_intensity_measurements.csv
+
+# generated plots in examples
+/examples/plots/
+**/examples/**/plots/
+
+# ad-hoc local scripts/results (repo-root)
+/benchmark_simd.sh
+/verify_avx512.sh
+
+# committed notes/docs live in notes/
+# ignore only explicitly-local scratch subdirs
+/notes/.local/
+/notes/.scratch/
+
+# optional local-only notes outside the committed tree
+/notes_local/
+
+# local nested clones (keep out of git)
+/osprey-fork_main/
 
 # netbeans things
 /nbproject
