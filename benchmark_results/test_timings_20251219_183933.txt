@@ -1,0 +1,10 @@
+    assign: 15 confs in 5.65 s (2.65 confs/s)
+    calcEnergy_all: 7 confs in 335.65 ms (20.85 confs/s)
+    calcEnergy_all: 15 confs in 22.40 ms (669.70 confs/s)
+    minimizeEnergy_all: 15 confs in 844.06 ms (17.77 confs/s)
+
+=== Summary ===
+    assign: 15 confs in 5.65 s (2.65 confs/s)
+    calcEnergy_all: 7 confs in 335.65 ms (20.85 confs/s)
+    calcEnergy_all: 15 confs in 22.40 ms (669.70 confs/s)
+    minimizeEnergy_all: 15 confs in 844.06 ms (17.77 confs/s)

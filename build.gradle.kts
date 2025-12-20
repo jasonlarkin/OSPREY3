@@ -232,6 +232,8 @@ tasks.withType<Test> {
 	testLogging {
 		setExceptionFormat("full")
         events("passed", "skipped", "failed")
+		// Show standard output when benchmarking (set via -PshowTestOutput=true)
+		showStandardStreams = project.findProperty("showTestOutput")?.toString()?.toBoolean() ?: false
 	}
 }
 

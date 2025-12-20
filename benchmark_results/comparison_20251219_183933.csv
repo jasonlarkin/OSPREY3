@@ -1,0 +1,6 @@
+version,system_size,operation,time_us_per_iter,time_total_ms,run_id
+main,test,total_test_execution,169500000.000,678000.000,0
+develop,test,assign,377358.491,5650.000,0
+develop,test,calcEnergy_all,47961.631,335.650,1
+develop,test,calcEnergy_all,1493.206,22.400,2
+develop,test,minimizeEnergy_all,56274.620,844.060,3

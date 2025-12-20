@@ -35,14 +35,17 @@ fun Project.makePythonTasks() {
 		description = "Install python package in development mode"
 		workingDir = pythonSrcDir.toFile()
 		dependsOn("processResources")
-		commandLine(
+		val args = mutableListOf(
 			pythonCmd, "-m", "pip",
 			"install",
-			if (!venv) "--user" else "",
 			"--editable",
 			".", // path to package to install, ie osprey
 			"--find-links=$pythonWheelhouseDir" // add a wheelhouse dir to find any bundled packages
 		)
+		if (!venv) {
+			args.add(args.indexOf("install") + 1, "--user")
+		}
+		commandLine(args)
 		doLast {
 			// write the java classpath somewhere our python code can find it
 			pythonBuildDir.createFolderIfNeeded()

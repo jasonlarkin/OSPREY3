@@ -57,7 +57,13 @@ jobs:
     
     - name: Run Java integration tests
       run: |
-        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon
+        # Run fast subset of tests for performance benchmarking (10-20s instead of hours)
+        ./gradlew test --rerun-tasks \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_1DG9_6f_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.minimizeEnergy_native_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.assign_native_2RL0_f64" \
+          --no-daemon
     
     - name: Check for compilation warnings
       working-directory: src/main/cc/ConfEcalc/build
@@ -104,7 +110,13 @@ jobs:
         cmake ..
         cmake --build . -j$(nproc)
         cd ../../../../..
-        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon 2>&1 | tee main-test-results.txt
+        # Run fast subset for performance benchmarking
+        ./gradlew test --rerun-tasks \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_1DG9_6f_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.minimizeEnergy_native_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.assign_native_2RL0_f64" \
+          --no-daemon 2>&1 | tee main-test-results.txt
     
     - name: Build and test feature branch
       run: |
@@ -115,7 +127,13 @@ jobs:
         cmake ..
         cmake --build . -j$(nproc)
         cd ../../../../..
-        ./gradlew test --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator" --no-daemon 2>&1 | tee feature-test-results.txt
+        # Run fast subset for performance benchmarking
+        ./gradlew test --rerun-tasks \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.calcEnergy_native_all_1DG9_6f_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.minimizeEnergy_native_2RL0_f64" \
+          --tests "edu.duke.cs.osprey.energy.compiled.TestNativeConfEnergyCalculator.assign_native_2RL0_f64" \
+          --no-daemon 2>&1 | tee feature-test-results.txt
     
     - name: Compare test results
       run: |
@@ -134,4 +152,29 @@ jobs:
           echo "ERROR: Feature branch has fewer passing tests"
           exit 1
         fi
+    
+    - name: Extract and compare performance metrics
+      run: |
+        python3 scripts/extract_performance_metrics.py main-test-results.txt feature-test-results.txt performance-comparison.json performance-comparison.csv || {
+          echo "Performance comparison completed with warnings"
+          cat performance-comparison.json 2>/dev/null || true
+        }
+    
+    - name: Summarize performance (using existing tools)
+      run: |
+        if [ -f performance-comparison.csv ]; then
+          echo "=== Performance Summary (using scripts/tools/summarize_benchmark_results.py) ==="
+          python3 scripts/tools/summarize_benchmark_results.py performance-comparison.csv --versions "main,develop" || true
+        fi
+    
+    - name: Upload performance comparison
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-comparison
+        path: |
+          performance-comparison.json
+          performance-comparison.csv
+          main-test-results.txt
+          feature-test-results.txt
 

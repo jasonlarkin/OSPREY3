@@ -1,0 +1,62 @@
+{
+  "baseline_metrics": [
+    {
+      "operation": "total_test_execution",
+      "confs": 4,
+      "time_seconds": 678,
+      "throughput": 0.0058997050147492625
+    }
+  ],
+  "test_metrics": [
+    {
+      "operation": "assign",
+      "confs": 15,
+      "time_seconds": 5.65,
+      "throughput": 2.65
+    },
+    {
+      "operation": "calcEnergy_all",
+      "confs": 7,
+      "time_seconds": 0.33565,
+      "throughput": 20.85
+    },
+    {
+      "operation": "calcEnergy_all",
+      "confs": 15,
+      "time_seconds": 0.0224,
+      "throughput": 669.7
+    },
+    {
+      "operation": "minimizeEnergy_all",
+      "confs": 15,
+      "time_seconds": 0.8440599999999999,
+      "throughput": 17.77
+    }
+  ],
+  "comparison": {
+    "baseline_count": 1,
+    "test_count": 4,
+    "comparisons": [
+      {
+        "operation": "assign",
+        "status": "new",
+        "message": "Operation assign only in test branch"
+      },
+      {
+        "operation": "calcEnergy_all",
+        "status": "new",
+        "message": "Operation calcEnergy_all only in test branch"
+      },
+      {
+        "operation": "minimizeEnergy_all",
+        "status": "new",
+        "message": "Operation minimizeEnergy_all only in test branch"
+      },
+      {
+        "operation": "total_test_execution",
+        "status": "missing",
+        "message": "Operation total_test_execution missing in test branch"
+      }
+    ]
+  }
+}
