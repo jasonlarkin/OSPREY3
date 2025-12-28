@@ -9,7 +9,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Configuration
 INSTANCE_IP="${INSTANCE_IP:-}"
 KEY_FILE="${KEY_FILE:-$HOME/.ssh/osprey-dev.pem}"
-GITHUB_PAT="${GITHUB_PAT:-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}"
+GITHUB_PAT="${GITHUB_PAT:-}"
+
+if [ -z "$GITHUB_PAT" ]; then
+    echo "Error: GITHUB_PAT environment variable not set"
+    echo "Usage: GITHUB_PAT=<token> $0"
+    echo "Get a token from: https://github.com/settings/tokens"
+    exit 1
+fi
+
 GITHUB_REPO="https://${GITHUB_PAT}@github.com/jasonlarkin/OSPREY3.git"
 
 if [ -z "$INSTANCE_IP" ]; then
