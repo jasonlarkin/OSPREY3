@@ -28,6 +28,10 @@ def find_best_log(logfile, apo_tolerance):
             break
         if on_header:
             fields = line.split(',')
+            
+            # Skip lines that don't have enough fields (like "completed" marker)
+            if len(fields) < 11:
+                continue
 
             # get the mutations
             mut_field = fields[1].replace(' ', '-')
@@ -104,7 +108,15 @@ def find_best_scans(infolder, outfolder, visited_dict, apo_tolerance):
         match_num = matchfolder.split('-')[0][5:]
         doublet_str = best_doublet.split('/')[2].split('-')[1].replace('[', '').replace(']', '')
         doublet_str_list = doublet_str.split('_')
-        doublet_numbers = [int(x) for x in doublet_str_list]
+        
+        # Handle MONTAGE format (kstar-[MONTAGE]) - no doublet info, use empty list
+        # ARISE rounds will have format like kstar-[1_2] with actual residue numbers
+        try:
+            doublet_numbers = [int(x) for x in doublet_str_list]
+        except ValueError:
+            # Not a valid doublet format (e.g., "MONTAGE"), use empty list
+            # This happens when using MONTAGE results directly
+            doublet_numbers = []
         if match_num in visited_dict:
             old_doublets = visited_dict[match_num]
             old_doublets.append(doublet_numbers)

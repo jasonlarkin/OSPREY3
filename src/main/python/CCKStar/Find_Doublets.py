@@ -713,26 +713,61 @@ def rank_flex_overlap(designID: str, targetID: str, intrachain_contacts: list, i
 
     print("Ordering interchain contacts by volume overlap")
 
-    # get the CH coords for all design chain residues
+    # Extract residue ID mappings from hull files (positions -> actual residue IDs)
+    import glob
+    import re
+    import os
+    
+    def get_residue_mapping(chain_id, hull_folder):
+        """Map 1-indexed position to actual residue ID by scanning hull files."""
+        pattern = os.path.join(hull_folder, f'Chain{chain_id}Res*.pdb')
+        files = sorted(glob.glob(pattern))
+        mapping = {}
+        for pos, filepath in enumerate(files, start=1):
+            # Extract residue ID from filename: ChainGRes638.pdb -> 638
+            match = re.search(rf'Chain{chain_id}Res(\d+)\.pdb', os.path.basename(filepath))
+            if match:
+                resid = int(match.group(1))
+                mapping[pos] = resid
+        return mapping
+    
+    design_mapping = get_residue_mapping(designID, hull_folder)
+    target_mapping = get_residue_mapping(targetID, hull_folder)
+    
+    # get the CH coords for all design chain residues (using actual residue IDs)
     intra_residues = {x for pair in intrachain_contacts for x in pair}
-    for res in intra_residues:
-        hull_loc = hulls_loc % (designID, res)
+    for pos in intra_residues:
+        resid = design_mapping.get(pos)
+        if resid is None:
+            print(f"WARNING: No mapping found for design position {pos}, skipping")
+            continue
+        hull_loc = hulls_loc % (designID, resid)
+        if not os.path.exists(hull_loc):
+            print(f"WARNING: Hull file not found: {hull_loc}, skipping")
+            continue
         coords = pdb_to_coords(hull_loc)
-        design_hulls[res] = coords
+        design_hulls[pos] = coords  # Store by position for later lookup
 
-    # get the CH for only flex target residues
-    inter_residues = {x for pair in interchain_contacts for x in pair}
-    for res in inter_residues:
-        hull_loc = hulls_loc % (targetID, res)
-        coords = pdb_to_coords(hull_loc)
-        target_hulls[res] = coords
+    # get the CH for only flex target residues (interchain_contacts contains actual residue IDs)
+    # interchain_contacts is a list where index corresponds to design position (0-indexed)
+    # Each element is a list of target residue IDs (actual IDs, not positions)
+    for des_pos, target_residue_list in enumerate(interchain_contacts, start=1):
+        for tar_resid in target_residue_list:
+            if tar_resid not in target_hulls:
+                hull_loc = hulls_loc % (targetID, tar_resid)
+                if not os.path.exists(hull_loc):
+                    print(f"WARNING: Hull file not found: {hull_loc}, skipping")
+                    continue
+                coords = pdb_to_coords(hull_loc)
+                target_hulls[tar_resid] = coords
 
     # compute mesh overlap using vtk boolean
-    for tar_res, tar_hull in target_hulls.items():
-        for des_res, des_hull in design_hulls.items():
+    for tar_resid, tar_hull in target_hulls.items():
+        for des_pos, des_hull in design_hulls.items():
             volume_overlap = find_volume_overlap(tar_hull, des_hull, True)
             if volume_overlap > 0.0:
-                overlap_pair = (designID+str(des_res), targetID+str(tar_res))
+                des_resid = design_mapping.get(des_pos, des_pos)  # Use actual ID if available
+                overlap_pair = (designID+str(des_resid), targetID+str(tar_resid))
                 ordered_flex[overlap_pair] = volume_overlap
 
     # order by cubic angstrom overlap
@@ -747,16 +782,57 @@ def rank_design_overlap(designID: str, intrachain_contacts: list, hull_folder: s
 
     print("Ordering intrachain contacts by volume overlap")
 
-    for res1, res2 in intrachain_contacts:
-        hull1_loc = hulls_loc % (designID, res1)
-        hull2_loc = hulls_loc % (designID, res2)
+    # Extract residue ID mapping from hull files (positions -> actual residue IDs)
+    import glob
+    import re
+    import os
+    
+    def get_residue_mapping(chain_id, hull_folder):
+        """Map 1-indexed position to actual residue ID by scanning hull files."""
+        pattern = os.path.join(hull_folder, f'Chain{chain_id}Res*.pdb')
+        files = sorted(glob.glob(pattern))
+        mapping = {}
+        for pos, filepath in enumerate(files, start=1):
+            # Extract residue ID from filename: ChainGRes638.pdb -> 638
+            match = re.search(rf'Chain{chain_id}Res(\d+)\.pdb', os.path.basename(filepath))
+            if match:
+                resid = int(match.group(1))
+                mapping[pos] = resid
+        return mapping
+    
+    design_mapping = get_residue_mapping(designID, hull_folder)
+
+    for pair in intrachain_contacts:
+        # Handle both set and list formats
+        if isinstance(pair, set):
+            pair_list = sorted(list(pair))
+        else:
+            pair_list = sorted(list(pair)) if hasattr(pair, '__iter__') else [pair]
+        
+        if len(pair_list) != 2:
+            continue
+            
+        pos1, pos2 = pair_list
+        resid1 = design_mapping.get(pos1)
+        resid2 = design_mapping.get(pos2)
+        
+        if resid1 is None or resid2 is None:
+            print(f"WARNING: No mapping found for positions {pos1},{pos2}, skipping")
+            continue
+            
+        hull1_loc = hulls_loc % (designID, resid1)
+        hull2_loc = hulls_loc % (designID, resid2)
+        
+        if not os.path.exists(hull1_loc) or not os.path.exists(hull2_loc):
+            print(f"WARNING: Hull files not found for {pos1},{pos2}, skipping")
+            continue
 
         coords1 = pdb_to_coords(hull1_loc)
         coords2 = pdb_to_coords(hull2_loc)
 
         volume_overlap = find_volume_overlap(coords1, coords2, True)
 
-        ordered_flex[(designID+str(res1), designID+str(res2))] = volume_overlap
+        ordered_flex[(designID+str(resid1), designID+str(resid2))] = volume_overlap
 
     # order by cubic angstrom overlap
     ordered_flex = dict(sorted(ordered_flex.items(), key=lambda item: item[1], reverse=True))

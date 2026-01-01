@@ -176,6 +176,8 @@ def scaffold_generator(complex_pdb: str, designID: str, input_directory: str,
     print("\n\n------ running scaffold generator ------\n\n")
 
     print("Storing outputs in %s" % output_directory)
+    if os.path.exists(output_directory):
+        shutil.rmtree(output_directory)
     os.mkdir(output_directory)
 
     total_disjoint = 0
@@ -312,6 +314,9 @@ def cleanup_MASTER(file: str):
 
     # create directory for output
     out_directory = "%s-MASTER" % file.split('.')[0]
+    if os.path.exists(out_directory):
+        # Remove existing directory if it exists from previous run
+        shutil.rmtree(out_directory)
     os.mkdir(out_directory)
 
     # copy over renamed files
@@ -357,6 +362,8 @@ def target_flex_MONTAGE(pdb_name: str, design_chirality: str, max_flex: int):
 def get_MONTAGE_gmec(id):
 
     out_directory = "%s-MONTAGE_GMEC" % id
+    if os.path.exists(out_directory):
+        shutil.rmtree(out_directory)
     os.mkdir(out_directory)
     print("Storing outputs in %s" % out_directory)
 
@@ -418,6 +425,19 @@ def check_MONTAGE_done():
 
 def cluster_runner_MONTAGE():
 
+    # Check if sbatch is available (SLURM cluster)
+    sbatch_check = subprocess.run(["which", "sbatch"], capture_output=True)
+    if sbatch_check.returncode != 0:
+        print("\nWARNING: sbatch not found. Cluster submission skipped.")
+        print("K* files have been prepared in *-MONTAGE directories.")
+        print("\nTo run K* locally, use one of these options:")
+        print("  1. Run Python API script: python3 run_kstar_python.py (recommended)")
+        print("  2. Run bash script: bash run_kstar_local.sh (requires design files)")
+        print("  3. Execute manually in each kstar-*/ directory")
+        print("\nNote: The CLI API changed - use Python API for .ccsx files.")
+        print("Or configure cluster access and ensure sbatch is available.")
+        return
+
     # copy over the submit script
     shutil.copy("resources/montage_cluster_runner.sh", "./montage_cluster_runner.sh")
 
@@ -428,18 +448,27 @@ def cluster_runner_MONTAGE():
     print(MONTAGE_request.stdout)
     if MONTAGE_request.stderr:
         print("ERROR submitting MONTAGE to cluster!", file=sys.stderr)
-        print(MONTAGE_request.stdout, file=sys.stderr)
-        sys.exit(1)
+        print(MONTAGE_request.stderr, file=sys.stderr)
+        print("K* files have been prepared but cluster submission failed.")
+        print("You can run K* scripts manually in each kstar-*/ directory.")
+        os.remove("./montage_cluster_runner.sh")
+        return
 
     # delete the copied file
     os.remove("./montage_cluster_runner.sh")
 
-    # check K* runs status
-    montage_done = False
-    while not montage_done:
-        montage_done = check_MONTAGE_done()
-        time.sleep(300)
-    print("All matches finished running MONTAGE!")
+    # check K* runs status (only if cluster submission succeeded)
+    # If sbatch wasn't available, skip the waiting loop
+    sbatch_check = subprocess.run(["which", "sbatch"], capture_output=True)
+    if sbatch_check.returncode == 0:
+        montage_done = False
+        while not montage_done:
+            montage_done = check_MONTAGE_done()
+            time.sleep(300)
+        print("All matches finished running MONTAGE!")
+    else:
+        print("Skipping cluster job monitoring (sbatch not available).")
+        print("K* files are ready in *-MONTAGE directories for manual execution.")
 
     # get the GMEC PDBs for ARISE
     for id in glob.glob("*-MONTAGE/"):
@@ -459,7 +488,7 @@ def run_MONTAGE(input_pdb_directory: str, input_chirality: str, output_chirality
         shutil.copy(full_filepath, file)
 
         # create scaffolds using MASTER
-        run_MASTER(file, input_chirality, output_chirality, "./resources/db.txt", str(MASTER_matches))
+        run_MASTER(file, input_chirality, output_chirality, "./resources/db.txt.local", str(MASTER_matches))
 
         # organize outputs
         cleanup_MASTER(file)
@@ -473,12 +502,16 @@ def run_MONTAGE(input_pdb_directory: str, input_chirality: str, output_chirality
 
         # setup output dir for this pdb
         out_pdb_foldername = ("%s-MONTAGE" % pdb_name)
+        if os.path.exists(out_pdb_foldername):
+            shutil.rmtree(out_pdb_foldername)
         os.mkdir(out_pdb_foldername)
 
         # find contacts and prepare OSPREY K* files for each scaffold
         for scaff in os.listdir(scaff_dir):
 
             out_match_foldername = ("%s-MONTAGE" % scaff.split('-')[0])
+            if os.path.exists(out_match_foldername):
+                shutil.rmtree(out_match_foldername)
             os.mkdir(out_match_foldername)
 
             print("\nNow preparing %s\n" % scaff.split('-')[0])

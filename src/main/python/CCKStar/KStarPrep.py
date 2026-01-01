@@ -8,6 +8,7 @@ from scipy.spatial import Delaunay
 
 import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from Find_Doublets import SCOPE, pdb_to_coords, find_volume_overlap
 from Confspace_Combiner import combine_Confspaces
@@ -368,10 +369,20 @@ def get_omol_res_chain(omol_name: str, resnum: str, location: int):
             found_start = False
         elif found_chain:
             id_region = line.split(",")[0]
-            curr_resnum = id_region.split("\"")[1].strip()
+            # Handle both quoted and unquoted residue numbers
+            id_parts = id_region.split("\"")
+            if len(id_parts) > 1:
+                curr_resnum = id_parts[1].strip()
+            else:
+                # Try without quotes
+                curr_resnum = id_region.strip()
             if curr_resnum == resnum:
                 type_region = line.split(",")[1]
-                curr_type = type_region.split("\"")[1]
+                type_parts = type_region.split("\"")
+                if len(type_parts) > 1:
+                    curr_type = type_parts[1]
+                else:
+                    curr_type = type_region.strip()
                 resType = curr_type
                 break
         elif search_name in line:
@@ -389,8 +400,18 @@ def make_target_confspace(confspec: ConfSpaceSpecs, omol_name: str):
 
     flex_res = confspec.flexset
     for resnum in flex_res:
-        resType, chainID = get_omol_res_chain(omol_name, str(resnum), 0)
-        new_flex = target_conf_space.addPosition(osprey.prep.ProteinDesignPosition(target_conf, chainID, str(resnum)))
+        # Extract residue number from format like 'A241' -> '241'
+        if isinstance(resnum, str) and len(resnum) > 1 and resnum[0].isalpha():
+            chain_id = resnum[0]
+            residue_num = resnum[1:]
+        else:
+            chain_id = None
+            residue_num = str(resnum)
+        
+        resType, chainID = get_omol_res_chain(omol_name, residue_num, 0)
+        # Use the chain ID from the residue string if available, otherwise use parsed chainID
+        final_chainID = chain_id if chain_id else chainID
+        new_flex = target_conf_space.addPosition(osprey.prep.ProteinDesignPosition(target_conf, final_chainID, residue_num))
         target_conf_space.addMutations(new_flex, resType)
 
     print('Target confspace for doublet %s:' % confspec.doublet)
@@ -534,26 +555,65 @@ def make_design_confspace(confspec: ConfSpaceSpecs, omol_name: str, mutTypes: li
     return design_conf_path
 
 
-def compile_confspaces(spaces: list):
-    for s in spaces:
-        confspace = osprey.prep.loadConfSpace(open(s, 'r').read())
-        save_path = s.split(".")[0] + ".ccsx"
+def _compile_single_confspace(confspace_path: str):
+    """
+    Compile a single confspace.
+    Assumes LocalService is already running (called within LocalService context).
+    """
+    confspace = osprey.prep.loadConfSpace(open(confspace_path, 'r').read())
+    save_path = confspace_path.split(".")[0] + ".ccsx"
 
-        compiler = osprey.prep.ConfSpaceCompiler(confspace)
+    compiler = osprey.prep.ConfSpaceCompiler(confspace)
 
-        compiler.getForcefields().add(osprey.prep.Forcefield.Amber96)
-        compiler.getForcefields().add(osprey.prep.Forcefield.EEF1)
+    compiler.getForcefields().add(osprey.prep.Forcefield.Amber96)
+    compiler.getForcefields().add(osprey.prep.Forcefield.EEF1)
 
-        print('Compiling %s' % s)
-        progress = compiler.compile()
-        progress.printUntilFinish(10000)
-        report = progress.getReport()
+    print('Compiling %s' % confspace_path)
+    progress = compiler.compile()
+    progress.printUntilFinish(10000)
+    report = progress.getReport()
 
-        if report.getError() is not None:
-            raise Exception('Compilation failed', report.getError())
+    if report.getError() is not None:
+        raise Exception('Compilation failed for %s: %s' % (confspace_path, report.getError()))
 
-        open(save_path, 'wb').write(osprey.prep.saveCompiledConfSpace(report.getCompiled()))
-        print('Saved compiled confspace to %s' % save_path)
+    open(save_path, 'wb').write(osprey.prep.saveCompiledConfSpace(report.getCompiled()))
+    print('Saved compiled confspace to %s' % save_path)
+    return confspace_path
+
+
+def compile_confspaces(spaces: list, parallel=True, max_workers=None):
+    """
+    Compile confspaces sequentially or in parallel.
+    
+    Args:
+        spaces: List of confspace file paths
+        parallel: If True, compile in parallel (default: True)
+        max_workers: Number of parallel workers (default: len(spaces))
+    
+    Note: Must be called within a LocalService context.
+    """
+    if not spaces:
+        return
+    
+    if not parallel or len(spaces) == 1:
+        # Sequential compilation
+        for s in spaces:
+            _compile_single_confspace(s)
+    else:
+        # Parallel compilation
+        if max_workers is None:
+            max_workers = len(spaces)
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_compile_single_confspace, s): s for s in spaces}
+            
+            for future in as_completed(futures):
+                confspace_path = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    # Re-raise with context
+                    raise Exception('Parallel compilation failed for %s: %s' % (confspace_path, str(e)))
 
 
 def organize_kstar_files(out_directory: str, doublet: ConfSpaceSpecs, target_name: str, design_name: str, complex_name: str, KStarBash: str):

@@ -31,6 +31,7 @@ public class Main {
         var commandMap = Map.of(
                 CommandPartitionFunction.CommandName, new CommandPartitionFunction(),
                 CommandBindingAffinity.CommandName, new CommandBindingAffinity(),
+                CommandKStarCcsx.CommandName, new CommandKStarCcsx(),
                 CommandTopNConfs.CommandName, new CommandTopNConfs(),
                 CommandGMEC.CommandName, new CommandGMEC(),
                 CommandMakeFlexShell.CommandName, new CommandMakeFlexShell()
