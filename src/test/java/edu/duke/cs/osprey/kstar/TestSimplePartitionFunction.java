@@ -258,8 +258,8 @@ public class TestSimplePartitionFunction {
 	private static EnergyMatrix calc2RL0ComplexEmat = null;
 	public void calc2RL0Complex(PfuncFactory pfuncs, Parallelism parallelism) {
 
-		// NOTE: to match the old code precisely, we need to match the old conf space exactly too
-		// which means we need to keep the same design position order (CCD is of course sensitive to this)
+		// NOTE: to match the old code precisely, need to match the old conf space exactly too
+		// need to keep the same design position order (CCD is of course sensitive to this)
 		// and also add the extra residues in the PDB file that aren't in the strands
 		TestInfo info = make2RL0TestInfo();
 		SimpleConfSpace confSpace = new SimpleConfSpace.Builder()
