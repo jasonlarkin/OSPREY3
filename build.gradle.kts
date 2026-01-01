@@ -193,6 +193,19 @@ tasks.withType<JavaExec> {
 	}
 }
 
+tasks.register<JavaExec>("kstarPfuncBench") {
+	group = "verification"
+	description = "Run Java OSPREY partition function benchmark (for Java vs C++ comparison)."
+	// Use the same classpath Gradle uses for running tests (includes main + test outputs + deps).
+	dependsOn("testClasses")
+	val testClasspath = tasks.named<Test>("test").get().classpath
+	classpath = testClasspath
+	mainClass.set("edu.duke.cs.osprey.kstar.bench.KStarPfuncBenchmark")
+	// examples:
+	//  ./gradlew kstarPfuncBench --args='--reps=3 --threads=1'
+	//  ./gradlew kstarPfuncBench --args='--cases=2RL0_Complex --methods=simple --reps=1 --threads=1'
+}
+
 distributions {
 	main {
 		contents {
