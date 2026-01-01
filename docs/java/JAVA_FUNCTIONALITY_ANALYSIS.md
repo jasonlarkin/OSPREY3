@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pure Java components (not using C++) implement core algorithms, data structures, and orchestration. These are the primary candidates for C++ porting to align with Ten63's architecture.
+Pure Java components (not using C++) implement core algorithms, data structures, and orchestration. These are the primary candidates for C++ porting to align with a C++-first architecture.
 
 ---
 
