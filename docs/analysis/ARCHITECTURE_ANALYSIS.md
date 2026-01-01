@@ -207,7 +207,7 @@ extern "C" {
 
 ## C++ Porting Candidates
 
-Based on Ten63's preference for C++ and performance requirements:
+Based on a preference for C++ and performance requirements:
 
 ### High Priority
 
@@ -270,9 +270,9 @@ Based on Ten63's preference for C++ and performance requirements:
 
 ---
 
-## Ten63 Architecture Comparison
+## Architecture Comparison
 
-### Ten63's Approach (Per Job Description)
+### C++-first Approach
 - **Primary Language**: C++
 - **Internal Code**: All in C++
 - **Bindings**: Python bindings (likely pybind11)
@@ -284,7 +284,7 @@ Based on Ten63's preference for C++ and performance requirements:
 - **Performance Code**: C++ (energy calculations only)
 - **Python**: Thin wrapper via JPype → Java → JNA → C++
 
-### Migration Path for Ten63
+### Migration Path for a C++ Port
 1. **Phase 1**: Port performance-critical algorithms to C++
    - EPIC matrix (fixes bugs)
    - Energy matrix computation
@@ -314,7 +314,7 @@ Based on Ten63's preference for C++ and performance requirements:
 3. **Keep Java**: KStar algorithms, GUI, I/O, data structures
 
 ### Key Insight
-**Most Java code does NOT touch C++**. Only ~5-10 files directly call C++ via JNA. The majority of the codebase (A*, KStar, COMETS, data structures) is pure Java and would be candidates for C++ porting if pursuing Ten63's architecture.
+**Most Java code does NOT touch C++**. Only ~5-10 files directly call C++ via JNA. The majority of the codebase (A*, KStar, COMETS, data structures) is pure Java and would be candidates for C++ porting in a C++-first architecture.
 
 ---
 

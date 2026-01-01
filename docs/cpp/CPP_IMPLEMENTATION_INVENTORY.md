@@ -201,7 +201,7 @@ An Intel-optimized version of the CPU energy calculator. Similar structure to `C
 
 **Location:** `src/main/cc/DeepCopy/`
 
-**NOTE:** This component was **developed in this fork** as part of the Ten63 demonstration work. It is **NOT** part of the original OSPREY codebase.
+**NOTE:** This component was **developed in this fork** as part of the Java->C++ port work. It is **NOT** part of the original OSPREY codebase.
 
 ### What It Is
 
@@ -352,7 +352,7 @@ A C++ implementation of an iterative, non-recursive deep copy mechanism for Java
 ### Our Fork Additions
 1. **DeepCopy** - Iterative deep copy deserializer (our addition)
 
-**Key Insight:** The original OSPREY C++ codebase is relatively small and focused - primarily the energy calculation components. Our DeepCopy addition demonstrates the type of modernization work Ten63 might perform.
+**Key Insight:** The original OSPREY C++ codebase is relatively small and focused - primarily the energy calculation components. Our DeepCopy addition demonstrates the type of modernization work a C++ port would require.
 
 ## Summary: C++ Features Across Components
 
