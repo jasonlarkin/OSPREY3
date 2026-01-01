@@ -129,7 +129,7 @@ From sample analysis:
 - **2.9% C++** - Performance-critical energy calculations
 - **5.8% Python** - User API wrapper
 
-### For Ten63 C++ Migration
+### For C++ Migration
 
 **Phase 1: Port Algorithms**
 - A* search (medium complexity, core algorithm)
