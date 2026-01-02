@@ -14,6 +14,18 @@ buildSrc/.gradle/
 **/perf.data
 **/perf.data.*
 
+# sensitive/local-only files (never commit)
+/osprey-dev.pem
+/aws_instance_*.txt
+/aws_volume_id.txt
+/aws_keys.md
+
+# IDE/editor workspace files (local-only)
+/osprey-fork_modern.code-workspace
+
+# local scratch dirs (repo-root)
+/Testing/
+
 # ConfEcalc local build artifacts
 src/main/cc/ConfEcalc/build/
 src/main/cc/ConfEcalc/build-integrate/
@@ -42,6 +54,27 @@ src/main/cc/ConfEcalc/build-*/
 
 # local nested clones (keep out of git)
 /osprey-fork_main/
+
+# pipeline analysis: keep curated *.md + small *.py runners, ignore raw outputs
+/pipeline_analysis/**/*.prof
+/pipeline_analysis/**/*.txt
+/pipeline_analysis/**/*.log
+/pipeline_analysis/**/*.out
+/pipeline_analysis/**/*.png
+/pipeline_analysis/**/*.json
+/pipeline_analysis/**/*.html
+/pipeline_analysis/**/Untitled
+
+# generated example outputs (local-only)
+/examples/python-bbonly.pdb
+/examples/python.GMEC/GMEC_generated.pdb
+/examples/python.KStar/hs_err_pid*.log
+
+# large local bundles (generated/third-party)
+/master-v1.6/
+/minimal_test_cases/
+/pdb_hulls_2rl0/
+/pdb_hulls_scaling_comparison/
 
 # netbeans things
 /nbproject
