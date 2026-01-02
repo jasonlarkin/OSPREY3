@@ -134,16 +134,32 @@ event_supported() {
 }
 
 select_events() {
-  local candidates=(cycles instructions cache-references cache-misses branch-instructions branch-misses)
+  # Prefer hardware events, fall back to software events if the PMU is not exposed
+  # (common on some virtualized/cloud instances).
+  local candidates_hw=(cycles instructions cache-references cache-misses branch-instructions branch-misses)
+  local candidates_sw=(task-clock context-switches cpu-migrations page-faults)
+
   # Bash nounset + empty arrays can be finicky across environments; declare explicitly.
   local -a selected
   selected=()
-  for ev in "${candidates[@]}"; do
+
+  for ev in "${candidates_hw[@]}"; do
     if event_supported "$ev"; then
       selected+=("${ev}:u")
     fi
   done
-  # If no events are available, return empty string (caller will skip perf stat).
+
+  # If PMU counters are unavailable, fall back to software counters so we still emit perf output.
+  if [ "${#selected[@]}" -eq 0 ]; then
+    for ev in "${candidates_sw[@]}"; do
+      # software events generally work without :u, but keep consistent mode here.
+      if event_supported "$ev"; then
+        selected+=("${ev}:u")
+      fi
+    done
+  fi
+
+  # If still no events are available, return empty string (caller will skip perf stat).
   (IFS=,; echo "${selected[*]-}")
 }
 
@@ -174,7 +190,7 @@ run_perf_stat() {
   local events="$3"
 
   if [ -z "$events" ]; then
-    log "Skipping perf stat ($name): no supported events detected"
+    log "Skipping perf stat ($name): no supported events detected (PMU may be unavailable/blocked on this system)"
     return 0
   fi
 
