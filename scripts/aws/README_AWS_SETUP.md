@@ -85,6 +85,28 @@ source /home/ec2-user/ten63_tools/bin/activate
 python3 -c "import osprey; osprey.start()"
 ```
 
+## SIMD Benchmarking / Profiling (ConfEcalc)
+
+For native Linux profiling (avoid WSL noise), run the ConfEcalc reproducibility sweep on the instance:
+
+```bash
+# local machine (this repo)
+INSTANCE_IP=$(cat aws_instance_ip.txt)
+KEY_FILE=~/.ssh/osprey-dev.pem
+./scripts/aws/run_simd_repro_on_instance.sh
+```
+
+Overrides (optional):
+
+```bash
+ATOMS=500 AMBER=1000 EEF1=500 ./scripts/aws/run_simd_repro_on_instance.sh
+PIN_CORE=0 BENCH_REPS=30 ./scripts/aws/run_simd_repro_on_instance.sh
+```
+
+Outputs are written on the instance under `perf_results/repro_*` and include:
+- `repro_summary.csv`
+- `plots/*.png` (if matplotlib is available)
+
 ## Instance Types
 
 ### Development (Recommended)

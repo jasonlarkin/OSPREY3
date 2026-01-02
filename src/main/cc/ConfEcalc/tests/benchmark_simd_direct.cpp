@@ -124,7 +124,7 @@ double benchmark_function(
     auto start = std::chrono::high_resolution_clock::now();
     volatile double total_energy = 0.0;  // volatile to prevent optimization
     for (int i = 0; i < iterations; i++) {
-        total_energy += calc_func(atoms, params, pairs);
+        total_energy = total_energy + calc_func(atoms, params, pairs);
     }
     auto end = std::chrono::high_resolution_clock::now();
     

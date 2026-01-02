@@ -125,13 +125,16 @@ event_supported() {
 
 select_events() {
   local candidates=(cycles instructions cache-references cache-misses branch-instructions branch-misses)
-  local selected=()
+  # Bash nounset + empty arrays can be finicky across environments; declare explicitly.
+  local -a selected
+  selected=()
   for ev in "${candidates[@]}"; do
     if event_supported "$ev"; then
       selected+=("${ev}:u")
     fi
   done
-  (IFS=,; echo "${selected[*]}")
+  # If no events are available, return empty string (caller will skip perf stat).
+  (IFS=,; echo "${selected[*]-}")
 }
 
 run_repeats() {
