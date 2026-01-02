@@ -117,9 +117,19 @@ event_supported() {
   local ev="$1"
   local out
   out="$(perf stat -e "${ev}:u" -- true 2>&1 || true)"
-  if echo "$out" | grep -Eqi "(not supported|unknown event|event syntax error|No such file or directory|failed to open)"; then
+
+  # If perf is blocked by paranoid settings/capabilities, retry with sudo (common on EC2).
+  if echo "$out" | grep -Eqi "(permission denied|not permitted|operation not permitted|you may not have permission)"; then
+    if sudo -n true 2>/dev/null; then
+      out="$(sudo -n perf stat -e "${ev}:u" -- true 2>&1 || true)"
+    fi
+  fi
+
+  # Treat as unsupported if perf reports common failure modes.
+  if echo "$out" | grep -Eqi "(not supported|unknown event|event syntax error|no such file or directory|failed to open|permission denied|not permitted|operation not permitted)"; then
     return 1
   fi
+
   return 0
 }
 

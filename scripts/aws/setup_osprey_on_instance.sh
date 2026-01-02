@@ -68,9 +68,9 @@ echo "You can:"
 echo "  1. Clone from git: git clone <repo-url> ."
 echo "  2. Or upload files via scp/rsync"
 
-# Setup Python virtual environment
-python3 -m venv /home/ec2-user/ten63_tools
-source /home/ec2-user/ten63_tools/bin/activate
+# Setup Python virtual environment (portable, non-proprietary)
+python3 -m venv /home/ec2-user/osprey_tools_venv
+source /home/ec2-user/osprey_tools_venv/bin/activate
 
 # Install Python dependencies
 pip install --upgrade pip
@@ -97,7 +97,8 @@ cat >> /home/ec2-user/.bashrc << 'ENV_EOF'
 export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
 export PATH=$JAVA_HOME/bin:$HOME/.local/bin:$PATH
 export OSPREY_HOME=/home/ec2-user/osprey-fork_modern
-source /home/ec2-user/ten63_tools/bin/activate
+export OSPREY_TOOLS_VENV=/home/ec2-user/osprey_tools_venv
+source /home/ec2-user/osprey_tools_venv/bin/activate
 source $HOME/.local/bin/env 2>/dev/null || true
 ENV_EOF
 

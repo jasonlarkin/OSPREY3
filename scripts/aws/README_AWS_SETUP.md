@@ -81,7 +81,8 @@ rsync -avz -e "ssh -i osprey-dev.pem" \
 ssh -i osprey-dev.pem ec2-user@<INSTANCE_IP>
 cd /home/ec2-user/osprey-fork_modern
 ./gradlew build
-source /home/ec2-user/ten63_tools/bin/activate
+export OSPREY_TOOLS_VENV="/home/ec2-user/osprey_tools_venv"
+source "$OSPREY_TOOLS_VENV/bin/activate"
 python3 -c "import osprey; osprey.start()"
 ```
 
