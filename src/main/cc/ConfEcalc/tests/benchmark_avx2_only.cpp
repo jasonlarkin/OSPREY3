@@ -27,6 +27,8 @@ int main(int argc, char* argv[]) {
     int iterations = argc > 4 ? std::atoi(argv[4]) : 1000;
     
     // Create test data (same as benchmark_scalar_only.cpp)
+    // Seed RNG for reproducibility across runs/machines.
+    std::srand(42);
     Array<Real3<double>> atoms(num_atoms);
     for (int i = 0; i < num_atoms; i++) {
         atoms[i] = Real3<double>(
@@ -56,7 +58,7 @@ int main(int argc, char* argv[]) {
         int atom1_idx = rand() % num_atoms;
         int atom2_idx = rand() % num_atoms;
         while (atom1_idx == atom2_idx) {
-            atom2_idx = rand() % 200;
+            atom2_idx = rand() % num_atoms;
         }
         amber_pairs[j].atomi1 = atom1_idx;
         amber_pairs[j].atomi2 = atom2_idx;
@@ -72,7 +74,7 @@ int main(int argc, char* argv[]) {
         int atom1_idx = rand() % num_atoms;
         int atom2_idx = rand() % num_atoms;
         while (atom1_idx == atom2_idx) {
-            atom2_idx = rand() % 200;
+            atom2_idx = rand() % num_atoms;
         }
         eef1_pairs[j].atomi1 = atom1_idx;
         eef1_pairs[j].atomi2 = atom2_idx;
@@ -88,13 +90,14 @@ int main(int argc, char* argv[]) {
     
     // Warmup
     for (int i = 0; i < 10; i++) {
-        calc_avx2(atoms, params, pairs);
+        (void)calc_avx2(atoms, params, pairs);
     }
     
     // Benchmark
     auto start = std::chrono::high_resolution_clock::now();
+    volatile double sink = 0.0;  // prevent the compiler from optimizing away the work
     for (int i = 0; i < iterations; i++) {
-        calc_avx2(atoms, params, pairs);
+        sink = sink + calc_avx2(atoms, params, pairs);
     }
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);

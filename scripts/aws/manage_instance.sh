@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROFILE="${AWS_PROFILE:-205930609292_AdministratorAccess}"
 
 export AWS_PROFILE="$PROFILE"
+export AWS_PAGER=""
 
 # Get instance ID
 if [ -f "$REPO_ROOT/aws_instance_id.txt" ]; then
