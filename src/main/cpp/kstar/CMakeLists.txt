@@ -93,6 +93,7 @@ set(SOURCES
     energy_matrix_loader.cpp
     astar_search.cpp
     astar_search_fast.cpp
+    conf_search_astar.cpp
 )
 
 # Headers
@@ -107,6 +108,7 @@ set(HEADERS
     conf_index.hpp
     conf_ranker.hpp
     conf_search.hpp
+    conf_search_astar.hpp
     conf_search_cache.hpp
     kstar_score.hpp
     astar_node.hpp
@@ -697,6 +699,31 @@ if (BUILD_TESTING AND EXISTS ${CONF_SEARCH_CACHE_GTEST_FILE})
     message(STATUS "ConfSearchCache GoogleTest added")
 endif()
 
+# ConfSearch (A*) tests (GoogleTest) - synthesized
+set(CONF_SEARCH_ASTAR_SYNTH_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_conf_search_astar_synthesized_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${CONF_SEARCH_ASTAR_SYNTH_GTEST_FILE})
+    add_executable(conf_search_astar_synthesized_gtest ${CONF_SEARCH_ASTAR_SYNTH_GTEST_FILE})
+    target_include_directories(conf_search_astar_synthesized_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(conf_search_astar_synthesized_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(conf_search_astar_synthesized_gtest)
+    kstar_apply_perf_opts(conf_search_astar_synthesized_gtest)
+    kstar_apply_coverage(conf_search_astar_synthesized_gtest)
+    kstar_apply_llvm_coverage(conf_search_astar_synthesized_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(conf_search_astar_synthesized_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST conf_search_astar_synthesized_gtest_tests
+    )
+    set_tests_properties(${conf_search_astar_synthesized_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;synthesized;conf_search"
+    )
+endif()
+
 # KStarScore tests (GoogleTest) - VERBATIM
 set(KSTAR_SCORE_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_kstar_score_gtest.cpp)
 if (BUILD_TESTING AND EXISTS ${KSTAR_SCORE_GTEST_FILE})
@@ -1040,6 +1067,7 @@ if (BUILD_TESTING)
     set(_kstar_check_deps "")
     foreach(t
         kstar_parallel_gtest
+        kstar_workflow_synthesized_gtest
         energy_matrix_gtest
         energy_matrix_osprey_pattern_gtest
         energy_matrix_java_comparison_gtest
@@ -1047,9 +1075,16 @@ if (BUILD_TESTING)
         astar_node_osprey_gtest
         kstar_score_gtest
         partition_function_gtest
+        partition_function_synthesized_gtest
+        partition_function_precision_tier0_gtest
+        partition_function_precision_tier1_gtest
+        log_space_gtest
+        log_space_precision_tier1_gtest
         conf_index_gtest
         conf_ranker_gtest
+        conf_search_astar_synthesized_gtest
         conf_search_cache_gtest
+        confspace_test
         energy_matrix_loader_corpus_runner
         energy_matrix_loader_regression_gtest
     )
@@ -1216,9 +1251,13 @@ if (BUILD_TESTING AND KSTAR_ENABLE_COVERAGE)
             COMMAND ${CMAKE_COMMAND} -E echo "=== prod-only coverage delta (baseline vs fuzz) ==="
             COMMAND /bin/bash -lc
                 "${REPO_ROOT}/scripts/kstar_coverage_prod_delta_report.sh ${CMAKE_BINARY_DIR}/coverage.prod.baseline.info ${CMAKE_BINARY_DIR}/coverage.prod.fuzz.info ${CMAKE_BINARY_DIR}/coverage/prod_coverage_delta.tsv"
-            COMMAND ${CMAKE_COMMAND} -E echo "Top changes (first 15 lines):"
+            COMMAND ${CMAKE_COMMAND} -E echo "Top per-file deltas (first 15 lines):"
             COMMAND /bin/bash -lc
                 "head -n 16 ${CMAKE_BINARY_DIR}/coverage/prod_coverage_delta.tsv || true"
+            COMMAND ${CMAKE_COMMAND} -E echo "Top newly covered branches/lines/functions are also written under ${CMAKE_BINARY_DIR}/coverage/:"
+            COMMAND ${CMAKE_COMMAND} -E echo "  - prod_coverage_delta.new_branches.tsv"
+            COMMAND ${CMAKE_COMMAND} -E echo "  - prod_coverage_delta.new_lines.tsv"
+            COMMAND ${CMAKE_COMMAND} -E echo "  - prod_coverage_delta.new_functions.tsv"
 
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
             COMMENT "Generate A/B prod-only coverage reports: baseline vs with fuzz corpus replay"

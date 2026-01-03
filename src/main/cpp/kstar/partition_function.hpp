@@ -160,7 +160,8 @@ private:
 
     [[nodiscard]] PartitionFunctionResult<T> computeWithGradientDescent(
         const EnergyMatrix<T>& emat,
-        T epsilon
+        T epsilon,
+        ComputeOptions options
     );
 
     /**

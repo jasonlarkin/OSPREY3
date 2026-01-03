@@ -5,6 +5,7 @@
 #include "astar_node_fast.hpp"
 #include "energy_matrix.hpp"
 #include "log_space.hpp"
+#include "conf_search_astar.hpp"
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -514,7 +515,8 @@ template<std::floating_point T>
 template<std::floating_point T>
 [[nodiscard]] PartitionFunctionResult<T> PartitionFunction<T>::computeWithGradientDescent(
     const EnergyMatrix<T>& emat,
-    T epsilon
+    T epsilon,
+    ComputeOptions options
 ) {
     // CPU-only port of OSPREY's edu.duke.cs.osprey.kstar.pfunc.GradientDescentPfunc
     //
@@ -536,20 +538,9 @@ template<std::floating_point T>
         num_confs_per_pos[pos] = emat.getNumConfsAtPos(pos);
     }
 
-    // Build the A* machinery used to enumerate conformations in increasing score
-    AStarSearch<T> astar(emat, num_positions, num_confs_per_pos);
-    struct NodeMinScore {
-        bool operator()(const AStarNode<T>& a, const AStarNode<T>& b) const noexcept {
-            return a.getScore() > b.getScore();
-        }
-    };
-    std::priority_queue<AStarNode<T>, std::vector<AStarNode<T>>, NodeMinScore> open_set;
-    {
-        auto root = AStarNode<T>::root(num_positions);
-        root.g_score = astar.computeGScore(root);
-        root.h_score = astar.computeHScore(root);
-        open_set.push(root);
-    }
+    // Build the ConfSearch used to enumerate conformations in increasing score.
+    // This matches the Java structure more closely (GD is defined in terms of a ConfSearch reader).
+    auto search = makeAStarConfSearch(emat, options.astar_variant);
 
     // Total number of conformations: compute exact when it fits, also track log10(total)
     bool total_fits_u64 = true;
@@ -573,33 +564,9 @@ template<std::floating_point T>
         log10_total_confs += std::log10(static_cast<long double>(m));
     }
 
-    struct ScoredLeaf {
-        AStarNode<T> node;
-        T score;
-    };
-
-    auto next_scored_leaf = [&]() -> std::optional<ScoredLeaf> {
-        while (!open_set.empty()) {
-            AStarNode<T> node = open_set.top();
-            open_set.pop();
-            if (astar.isLeaf(node)) {
-                // ensure g/h are populated (children have these precomputed in expand())
-                if (node.g_score == T(0) && node.h_score == T(0) && num_positions > 0) {
-                    node.g_score = astar.computeGScore(node);
-                    node.h_score = astar.computeHScore(node);
-                }
-                return ScoredLeaf{std::move(node), node.getScore()};
-            }
-            auto children = astar.expand(node);
-            for (const auto& child : children) {
-                open_set.push(child);
-            }
-        }
-        return std::nullopt;
-    };
-
-    // Splitter buffer: score-reader pushes, energy-reader pops (score must be ahead)
-    std::deque<ScoredLeaf> buf;
+    // Splitter buffer: score-reader pushes, energy-reader pops (score must be ahead).
+    // We only need the score in Phase-1 (score==energy), so buffer stores score values.
+    std::deque<T> buf;
 
     // State in log10 space (initialize to log10(0) = -inf)
     const T neg_inf = std::numeric_limits<T>::lowest();
@@ -698,19 +665,23 @@ template<std::floating_point T>
         return log10_min_lower_score_w > T(-350);
     };
 
+    bool search_exhausted = false;
+
     auto do_score_batch = [&](int numScores) -> bool {
         int got = 0;
         for (int i = 0; i < numScores; ++i) {
-            auto leaf = next_scored_leaf();
-            if (!leaf) {
+            auto conf = search->nextConf();
+            if (!conf) {
+                search_exhausted = true;
                 break;
             }
-            if (std::isinf(leaf->score) && leaf->score > T(0)) {
+            const T score = static_cast<T>(conf->score);
+            if (std::isinf(score) && score > T(0)) {
                 break;
             }
 
             // compute weight for score
-            T log10_w = log10BoltzmannWeight(leaf->score);
+            T log10_w = log10BoltzmannWeight(score);
             if (log10_upper_score_sum == neg_inf) {
                 log10_upper_score_sum = log10_w;
             } else {
@@ -718,7 +689,7 @@ template<std::floating_point T>
             }
             log10_min_upper_score_w = std::min(log10_min_upper_score_w, log10_w);
 
-            buf.push_back(*std::move(leaf));
+            buf.push_back(score);
             ++num_scored;
             ++got;
         }
@@ -737,13 +708,12 @@ template<std::floating_point T>
             return false;
         }
 
-        ScoredLeaf leaf = std::move(buf.front());
+        const T score = buf.front();
         buf.pop_front();
 
         // scoreWeight and energyWeight
         // In this C++ Phase-1 port, score==energy (no minimization).
-        T score = leaf.score;
-        T energy = astar.computeGScore(leaf.node);
+        T energy = score;
 
         T log10_score_w = log10BoltzmannWeight(score);
         T log10_energy_w = log10BoltzmannWeight(energy);
@@ -803,7 +773,7 @@ template<std::floating_point T>
         int numScores = 0;
 
         // Choose which step to take (ported from Java logic)
-        if (!buf.empty() && ((scoreAheadOfEnergy && energySteeperThanScore) || open_set.empty())) {
+        if (!buf.empty() && ((scoreAheadOfEnergy && energySteeperThanScore) || search_exhausted)) {
             step = Step::Energy;
         } else {
             step = Step::Score;
@@ -829,7 +799,7 @@ template<std::floating_point T>
         }
 
         // Safety: always keep score ahead to satisfy the Splitter invariant
-        if (buf.empty() && !open_set.empty()) {
+        if (buf.empty()) {
             (void)do_score_batch(10);
         }
     }
@@ -904,7 +874,7 @@ template<std::floating_point T>
         case PartitionFunctionMethod::AStar:
             return computeWithAStar(emat, epsilon, options);
         case PartitionFunctionMethod::GradientDescent:
-            return computeWithGradientDescent(emat, epsilon);
+            return computeWithGradientDescent(emat, epsilon, options);
     }
 
     return computeWithAStar(emat, epsilon, options);
