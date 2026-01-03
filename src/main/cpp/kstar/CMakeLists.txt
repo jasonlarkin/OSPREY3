@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Export compile commands for tooling (clang-tidy, IDEs).
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 option(KSTAR_ENABLE_COVERAGE "Enable GCC/Clang coverage instrumentation for kstar tests (gcov/lcov)" OFF)
 option(KSTAR_ENABLE_LLVM_COVERAGE "Enable Clang source-based coverage instrumentation for kstar tests (llvm-profdata/llvm-cov)" OFF)
 option(KSTAR_ENABLE_NATIVE_OPT "Enable -march=native (disable for portability)" ON)
@@ -83,6 +86,7 @@ endfunction()
 # Source files
 set(SOURCES
     kstar_parallel.cpp
+    kstar_workflow.cpp
     partition_function.cpp
     thread_pool.cpp
     energy_matrix.cpp
@@ -94,6 +98,7 @@ set(SOURCES
 # Headers
 set(HEADERS
     kstar_parallel.hpp
+    kstar_workflow.hpp
     partition_function.hpp
     thread_pool.hpp
     sequence.hpp
@@ -254,6 +259,35 @@ if (KSTAR_ENABLE_BENCHMARKS)
         target_link_libraries(kstar_partition_function_bench PRIVATE osprey_kstar_parallel benchmark::benchmark)
         kstar_apply_default_warnings(kstar_partition_function_bench)
         kstar_apply_perf_opts(kstar_partition_function_bench)
+
+        add_custom_target(kstar_run_partition_function_bench
+            COMMAND $<TARGET_FILE:kstar_partition_function_bench> --benchmark_min_time=0.5s
+            DEPENDS kstar_partition_function_bench
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run Google Benchmark: partition function (A* baseline/fast + GD)"
+            VERBATIM
+        )
+    endif()
+
+    set(KSTAR_ASTAR_BENCH_FILE ${REPO_ROOT}/src/test/cpp/kstar/bench_astar_search_google_benchmark.cpp)
+    if (EXISTS ${KSTAR_ASTAR_BENCH_FILE})
+        add_executable(kstar_astar_search_bench ${KSTAR_ASTAR_BENCH_FILE})
+        target_include_directories(kstar_astar_search_bench PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${REPO_ROOT}/src/main/cpp/kstar
+            ${REPO_ROOT}/src/test/cpp/kstar
+        )
+        target_link_libraries(kstar_astar_search_bench PRIVATE osprey_kstar_parallel benchmark::benchmark)
+        kstar_apply_default_warnings(kstar_astar_search_bench)
+        kstar_apply_perf_opts(kstar_astar_search_bench)
+
+        add_custom_target(kstar_run_astar_search_bench
+            COMMAND $<TARGET_FILE:kstar_astar_search_bench> --benchmark_filter=BM_AStar.* --benchmark_min_time=0.5s
+            DEPENDS kstar_astar_search_bench
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run Google Benchmark: A* search hot-loop (baseline vs fast)"
+            VERBATIM
+        )
     endif()
 
     set(KSTAR_PFUNC_CHRONO_FILE ${REPO_ROOT}/src/test/cpp/kstar/bench_partition_function_chrono.cpp)
@@ -267,6 +301,28 @@ if (KSTAR_ENABLE_BENCHMARKS)
         target_link_libraries(kstar_partition_function_chrono PRIVATE osprey_kstar_parallel)
         kstar_apply_default_warnings(kstar_partition_function_chrono)
         kstar_apply_perf_opts(kstar_partition_function_chrono)
+
+        add_custom_target(kstar_run_partition_function_chrono
+            COMMAND $<TARGET_FILE:kstar_partition_function_chrono> --reps=3
+            DEPENDS kstar_partition_function_chrono
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run chrono benchmark: partition function (prints per-case timing)"
+            VERBATIM
+        )
+    endif()
+
+    # Convenience build target: build only the benchmark executables (no gtests).
+    # Usage:
+    #   cmake --build <build-dir> --target kstar_bench_build
+    add_custom_target(kstar_bench_build)
+    if (TARGET kstar_partition_function_bench)
+        add_dependencies(kstar_bench_build kstar_partition_function_bench)
+    endif()
+    if (TARGET kstar_astar_search_bench)
+        add_dependencies(kstar_bench_build kstar_astar_search_bench)
+    endif()
+    if (TARGET kstar_partition_function_chrono)
+        add_dependencies(kstar_bench_build kstar_partition_function_chrono)
     endif()
 endif()
 
@@ -665,6 +721,31 @@ if (BUILD_TESTING AND EXISTS ${KSTAR_SCORE_GTEST_FILE})
     )
 endif()
 
+# K* workflow tests (GoogleTest) - synthesized
+set(KSTAR_WORKFLOW_SYNTH_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_kstar_workflow_synthesized_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${KSTAR_WORKFLOW_SYNTH_GTEST_FILE})
+    add_executable(kstar_workflow_synthesized_gtest ${KSTAR_WORKFLOW_SYNTH_GTEST_FILE})
+    target_include_directories(kstar_workflow_synthesized_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(kstar_workflow_synthesized_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(kstar_workflow_synthesized_gtest)
+    kstar_apply_perf_opts(kstar_workflow_synthesized_gtest)
+    kstar_apply_coverage(kstar_workflow_synthesized_gtest)
+    kstar_apply_llvm_coverage(kstar_workflow_synthesized_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(kstar_workflow_synthesized_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST kstar_workflow_synthesized_gtest_tests
+    )
+    set_tests_properties(${kstar_workflow_synthesized_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;synthesized;kstar_workflow"
+    )
+endif()
+
 # -----------------------------
 # CTest "meta" targets for hierarchical runs
 # (works even if per-test discovery labels aren't available)
@@ -698,8 +779,39 @@ if (BUILD_TESTING)
         set_tests_properties(kstar.log_space_precision_tier1 PROPERTIES LABELS "kstar;gtest;synthesized;precision;tier1;log_space")
     endif()
 
+    if (TARGET kstar_workflow_synthesized_gtest)
+        add_test(NAME kstar.kstar_workflow COMMAND $<TARGET_FILE:kstar_workflow_synthesized_gtest>)
+        set_tests_properties(kstar.kstar_workflow PROPERTIES LABELS "kstar;gtest;synthesized;kstar_workflow")
+    endif()
+
+    # Optional: benchmark smoke tests (very short runs) so `ctest -R kstar\\.bench_` works.
+    if (KSTAR_ENABLE_BENCHMARKS AND TARGET kstar_astar_search_bench)
+        add_test(NAME kstar.bench_astar_smoke COMMAND $<TARGET_FILE:kstar_astar_search_bench>
+            --benchmark_filter=BM_AStar.*
+            --benchmark_min_time=0.01s
+        )
+        set_tests_properties(kstar.bench_astar_smoke PROPERTIES LABELS "kstar;benchmark;synthesized;smoke;astar")
+    endif()
+    if (KSTAR_ENABLE_BENCHMARKS AND TARGET kstar_partition_function_bench)
+        add_test(NAME kstar.bench_pfunc_smoke COMMAND $<TARGET_FILE:kstar_partition_function_bench>
+            --benchmark_filter=BM_Pfunc_.*
+            --benchmark_min_time=0.01s
+        )
+        set_tests_properties(kstar.bench_pfunc_smoke PROPERTIES LABELS "kstar;benchmark;synthesized;smoke;partition_function")
+    endif()
+
     # Convenience umbrella for the precision suite (single entrypoint).
     if (TARGET partition_function_precision_tier0_gtest AND TARGET partition_function_precision_tier1_gtest AND TARGET log_space_precision_tier1_gtest)
+        # Convenience build target: only the binaries executed by kstar.precision_all.
+        # Usage:
+        #   cmake --build <build-dir> --target kstar_precision_build
+        add_custom_target(kstar_precision_build
+            DEPENDS
+                partition_function_precision_tier0_gtest
+                partition_function_precision_tier1_gtest
+                log_space_precision_tier1_gtest
+        )
+
         add_test(NAME kstar.precision_all COMMAND /bin/bash -lc
             "$<TARGET_FILE:partition_function_precision_tier0_gtest> && $<TARGET_FILE:partition_function_precision_tier1_gtest> && $<TARGET_FILE:log_space_precision_tier1_gtest>"
         )
@@ -708,10 +820,117 @@ if (BUILD_TESTING)
 
     # Sanitizer smoke suite (intended for a dedicated ASan/UBSan build tree).
     if (KSTAR_ENABLE_SANITIZERS AND TARGET partition_function_precision_tier0_gtest AND TARGET partition_function_precision_tier1_gtest AND TARGET log_space_precision_tier1_gtest)
+        # Convenience build target: only the binaries executed by kstar.sanitizers_smoke.
+        # Usage:
+        #   cmake --build <build-dir> --target kstar_sanitizers_smoke_build
+        add_custom_target(kstar_sanitizers_smoke_build
+            DEPENDS
+                partition_function_precision_tier0_gtest
+                partition_function_precision_tier1_gtest
+                log_space_precision_tier1_gtest
+        )
+
         add_test(NAME kstar.sanitizers_smoke COMMAND /bin/bash -lc
             "ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $<TARGET_FILE:partition_function_precision_tier0_gtest> && ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $<TARGET_FILE:partition_function_precision_tier1_gtest> && ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $<TARGET_FILE:log_space_precision_tier1_gtest>"
         )
         set_tests_properties(kstar.sanitizers_smoke PROPERTIES LABELS "kstar;gtest;synthesized;sanitizers")
+    endif()
+
+    # Static analysis (clang-tidy) - SYNTHESIZED category for bug-finding.
+    #
+    # This is intentionally a curated subset to keep runtime and noise stable.
+    set(_KSTAR_CLANG_TIDY_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/partition_function.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/energy_matrix_loader.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/energy_matrix.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/astar_search.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/astar_search_fast.cpp
+    )
+
+    add_custom_target(kstar_clang_tidy
+        COMMAND /bin/bash -lc
+            "command -v clang-tidy >/dev/null 2>&1 || { echo 'ERROR: clang-tidy not found. Install: sudo apt-get install -y clang-tidy'; exit 1; } ; \
+             test -f \"${CMAKE_BINARY_DIR}/compile_commands.json\" || { echo 'ERROR: compile_commands.json not found in build dir'; exit 1; } ; \
+             clang-tidy -p \"${CMAKE_BINARY_DIR}\" ${_KSTAR_CLANG_TIDY_FILES}"
+        VERBATIM
+    )
+
+    add_test(NAME kstar.clang_tidy COMMAND /bin/bash -lc
+        "command -v clang-tidy >/dev/null 2>&1 || { echo 'SKIP: clang-tidy not found. Install: sudo apt-get install -y clang-tidy'; exit 125; } ; \
+         cmake --build \"${CMAKE_BINARY_DIR}\" --target kstar_clang_tidy"
+    )
+    set_tests_properties(kstar.clang_tidy PROPERTIES
+        LABELS "kstar;static_analysis;clang_tidy;synthesized"
+        SKIP_RETURN_CODE 125
+    )
+
+    # Tier 2: CBMC (bounded model checking) on the smallest surfaces.
+    # This is intentionally optional and skips cleanly when cbmc is not installed.
+    set(KSTAR_CBMC_LOG_SPACE_HARNESS ${REPO_ROOT}/src/test/cpp/kstar/cbmc_log_space_tier2.cpp)
+    if (EXISTS ${KSTAR_CBMC_LOG_SPACE_HARNESS})
+        add_custom_target(kstar_cbmc_log_space_tier2
+            COMMAND /bin/bash -lc
+                "command -v cbmc >/dev/null 2>&1 || { echo 'ERROR: cbmc not found. Install: sudo apt-get install -y cbmc'; exit 1; } ; \
+                 cbmc --version ; \
+                 cbmc --stop-on-fail --unwind 1 --bounds-check --pointer-check --div-by-zero-check --signed-overflow-check --nan-check --float-overflow-check \
+                      --cpp11 \
+                      -I\"${REPO_ROOT}/src/main/cpp/kstar\" \
+                      \"${KSTAR_CBMC_LOG_SPACE_HARNESS}\""
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run CBMC Tier2: log_space.hpp early-return/cutoff proofs"
+            VERBATIM
+        )
+
+        add_test(NAME kstar.cbmc_log_space_tier2 COMMAND /bin/bash -lc
+            "command -v cbmc >/dev/null 2>&1 || { echo 'SKIP: cbmc not found. Install: sudo apt-get install -y cbmc'; exit 125; } ; \
+             cmake --build \"${CMAKE_BINARY_DIR}\" --target kstar_cbmc_log_space_tier2"
+        )
+        set_tests_properties(kstar.cbmc_log_space_tier2 PROPERTIES
+            LABELS "kstar;cbmc;synthesized;precision;tier2;log_space"
+            SKIP_RETURN_CODE 125
+        )
+    endif()
+
+    set(KSTAR_CBMC_PFUNC_HARNESS ${REPO_ROOT}/src/test/cpp/kstar/cbmc_partition_function_tier2.cpp)
+    if (EXISTS ${KSTAR_CBMC_PFUNC_HARNESS})
+        add_custom_target(kstar_cbmc_partition_function_tier2
+            COMMAND /bin/bash -lc
+                "command -v cbmc >/dev/null 2>&1 || { echo 'ERROR: cbmc not found. Install: sudo apt-get install -y cbmc'; exit 1; } ; \
+                 cbmc --version ; \
+                 cbmc --stop-on-fail --unwind 1 --bounds-check --pointer-check --div-by-zero-check --signed-overflow-check --nan-check --float-overflow-check \
+                      --cpp11 \
+                      \"${KSTAR_CBMC_PFUNC_HARNESS}\""
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run CBMC Tier2: PartitionFunction delta/cutoff invariants"
+            VERBATIM
+        )
+
+        add_test(NAME kstar.cbmc_partition_function_tier2 COMMAND /bin/bash -lc
+            "command -v cbmc >/dev/null 2>&1 || { echo 'SKIP: cbmc not found. Install: sudo apt-get install -y cbmc'; exit 125; } ; \
+             cmake --build \"${CMAKE_BINARY_DIR}\" --target kstar_cbmc_partition_function_tier2"
+        )
+        set_tests_properties(kstar.cbmc_partition_function_tier2 PROPERTIES
+            LABELS "kstar;cbmc;synthesized;precision;tier2;partition_function"
+            SKIP_RETURN_CODE 125
+        )
+    endif()
+
+    # Convenience umbrella for Tier2 CBMC checks (single entrypoint).
+    if (EXISTS ${KSTAR_CBMC_LOG_SPACE_HARNESS} AND EXISTS ${KSTAR_CBMC_PFUNC_HARNESS})
+        add_custom_target(kstar_cbmc_all_tier2_build
+            DEPENDS
+                kstar_cbmc_log_space_tier2
+                kstar_cbmc_partition_function_tier2
+        )
+
+        add_test(NAME kstar.cbmc_all COMMAND /bin/bash -lc
+            "command -v cbmc >/dev/null 2>&1 || { echo 'SKIP: cbmc not found. Install: sudo apt-get install -y cbmc'; exit 125; } ; \
+             cmake --build \"${CMAKE_BINARY_DIR}\" --target kstar_cbmc_all_tier2_build"
+        )
+        set_tests_properties(kstar.cbmc_all PROPERTIES
+            LABELS "kstar;cbmc;synthesized;precision;tier2"
+            SKIP_RETURN_CODE 125
+        )
     endif()
 
     # Compile-fail tests (C++20 constraints and [[nodiscard]] enforcement)

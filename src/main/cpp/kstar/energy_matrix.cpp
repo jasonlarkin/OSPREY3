@@ -13,18 +13,25 @@ EnergyMatrix<T>::EnergyMatrix(int32_t num_positions, const std::vector<int32_t>&
     if (num_positions_ != static_cast<int32_t>(num_confs_per_pos_.size())) {
         throw std::invalid_argument("num_positions must match num_confs_per_pos size");
     }
-    
-    // Allocate one-body energies: sum of conformations across all positions
-    int32_t total_one_body = 0;
+
+    // Precompute one-body offsets (prefix sums).
+    one_body_offsets_.assign(static_cast<size_t>(num_positions_) + 1, 0);
     for (int32_t pos = 0; pos < num_positions_; ++pos) {
-        total_one_body += num_confs_per_pos_[pos];
+        one_body_offsets_[static_cast<size_t>(pos) + 1] =
+            one_body_offsets_[static_cast<size_t>(pos)] + num_confs_per_pos_[pos];
     }
+    const int32_t total_one_body = one_body_offsets_[static_cast<size_t>(num_positions_)];
     one_body_.resize(total_one_body, T(0));
-    
-    // Allocate pairwise energies: sum of position pairs * conformation pairs
+
+    // Precompute pairwise offsets (Java-style triangular position packing).
+    const int32_t num_pairs = (num_positions_ * (num_positions_ - 1)) / 2;
+    pairwise_offsets_.assign(static_cast<size_t>(num_pairs), 0);
+
     int32_t total_pairwise = 0;
     for (int32_t pos1 = 1; pos1 < num_positions_; ++pos1) {
         for (int32_t pos2 = 0; pos2 < pos1; ++pos2) {
+            const int32_t idx = pairPosIndex(pos1, pos2);
+            pairwise_offsets_[static_cast<size_t>(idx)] = total_pairwise;
             total_pairwise += num_confs_per_pos_[pos1] * num_confs_per_pos_[pos2];
         }
     }
@@ -35,13 +42,8 @@ template<std::floating_point T>
 int32_t EnergyMatrix<T>::getOneBodyIndex(int32_t pos, int32_t conf) const {
     validatePos(pos);
     validateConf(pos, conf);
-    
-    // Compute cumulative offset: sum of conformations in all previous positions
-    int32_t offset = 0;
-    for (int32_t p = 0; p < pos; ++p) {
-        offset += num_confs_per_pos_[p];
-    }
-    return offset + conf;
+
+    return one_body_offsets_[static_cast<size_t>(pos)] + conf;
 }
 
 template<std::floating_point T>
@@ -58,26 +60,19 @@ int32_t EnergyMatrix<T>::getPairwiseIndex(int32_t pos1, int32_t conf1, int32_t p
     validatePos(pos2);
     validateConf(pos1, conf1);
     validateConf(pos2, conf2);
-    
-    // Compute cumulative offset for this position pair (matching Java pairwiseOffsets)
-    int32_t offset = 0;
-    for (int32_t p1 = 1; p1 < pos1; ++p1) {
-        for (int32_t p2 = 0; p2 < p1; ++p2) {
-            offset += num_confs_per_pos_[p1] * num_confs_per_pos_[p2];
-        }
-    }
-    // Add offset for position pairs at pos1 level, before pos2
-    for (int32_t p2 = 0; p2 < pos2; ++p2) {
-        offset += num_confs_per_pos_[pos1] * num_confs_per_pos_[p2];
-    }
-    
-    // Java formula: pairwiseOffsets[pos_pair_index] + numConfAtPos[pos2]*conf1 + conf2
-    return offset + num_confs_per_pos_[pos2] * conf1 + conf2;
+
+    const int32_t base = pairwise_offsets_[static_cast<size_t>(pairPosIndex(pos1, pos2))];
+    return base + num_confs_per_pos_[pos2] * conf1 + conf2;
 }
 
 template<std::floating_point T>
 T EnergyMatrix<T>::getOneBody(int32_t pos, int32_t conf) const {
     return one_body_[getOneBodyIndex(pos, conf)];
+}
+
+template<std::floating_point T>
+T EnergyMatrix<T>::getOneBodyUnchecked(int32_t pos, int32_t conf) const noexcept {
+    return one_body_[one_body_offsets_[static_cast<size_t>(pos)] + conf];
 }
 
 template<std::floating_point T>
@@ -93,6 +88,23 @@ T EnergyMatrix<T>::getPairwise(int32_t pos1, int32_t conf1, int32_t pos2, int32_
         std::swap(conf1, conf2);
     }
     return pairwise_[getPairwiseIndex(pos1, conf1, pos2, conf2)];
+}
+
+template<std::floating_point T>
+T EnergyMatrix<T>::getPairwiseAssumingPos1Greater(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept {
+    const int32_t base = pairwise_offsets_[static_cast<size_t>(pairPosIndex(pos1, pos2))];
+    return pairwise_[base + num_confs_per_pos_[pos2] * conf1 + conf2];
+}
+
+template<std::floating_point T>
+T EnergyMatrix<T>::getPairwiseUnchecked(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept {
+    if (pos1 < pos2) {
+        std::swap(pos1, pos2);
+        std::swap(conf1, conf2);
+    }
+    // pos1 != pos2 is required by contract; if equal, the index math is invalid.
+    const int32_t base = pairwise_offsets_[static_cast<size_t>(pairPosIndex(pos1, pos2))];
+    return pairwise_[base + num_confs_per_pos_[pos2] * conf1 + conf2];
 }
 
 template<std::floating_point T>

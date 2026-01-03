@@ -31,7 +31,7 @@ void AStarSearchFast<T>::precomputeUndefinedEnergies() {
                 T min_energy = std::numeric_limits<T>::max();
                 for (int32_t rc2 = 0; rc2 < num_confs_per_pos_[pos2]; ++rc2) {
                     // EnergyMatrix requires pos1 > pos2. This is satisfied because pos2 < pos1 here.
-                    min_energy = std::min(min_energy, emat_.getPairwise(pos1, rc1, pos2, rc2));
+                    min_energy = std::min(min_energy, emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2));
                 }
                 undefined_energies_[pos1][rc1][pos2] = min_energy;
             }
@@ -49,7 +49,7 @@ T AStarSearchFast<T>::computeGScore(const AStarNodeFast<T>& node) const {
     for (int32_t pos = 0; pos < num_positions_; ++pos) {
         const int16_t rc = a[pos];
         if (rc >= 0) {
-            gscore += emat_.getOneBody(pos, rc);
+            gscore += emat_.getOneBodyUnchecked(pos, rc);
         }
     }
 
@@ -64,7 +64,7 @@ T AStarSearchFast<T>::computeGScore(const AStarNodeFast<T>& node) const {
             if (rc2 < 0) {
                 continue;
             }
-            gscore += emat_.getPairwise(pos1, rc1, pos2, rc2);
+            gscore += emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2);
         }
     }
 
@@ -86,17 +86,17 @@ T AStarSearchFast<T>::computeHScore(const AStarNodeFast<T>& node) const {
         const int32_t nrc1 = num_confs_per_pos_[pos1];
 
         for (int32_t rc1 = 0; rc1 < nrc1; ++rc1) {
-            T e = emat_.getOneBody(pos1, rc1);
+            T e = emat_.getOneBodyUnchecked(pos1, rc1);
 
             // pairwise with assigned positions
-            // NOTE: with our sequential expansion order (getNextPosition = first unassigned),
+            // NOTE: with sequential expansion order (getNextPosition = first unassigned),
             // assigned positions are always < pos1, so pos1 > pos2 holds.
             for (int32_t pos2 = 0; pos2 < pos1; ++pos2) {
                 const int16_t rc2 = a[pos2];
                 if (rc2 < 0) {
                     continue;
                 }
-                e += emat_.getPairwise(pos1, rc1, pos2, rc2);
+                e += emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2);
             }
 
             // optimal pairwise with other unassigned positions (pos2 < pos1)

@@ -151,3 +151,46 @@ TEST(PartitionFunction_PRECISION_Tier0, FloatVsDouble_ExactEnumeration_CloseOnTi
     }
 }
 
+TEST(PartitionFunction_PRECISION_Tier0, GradientDescentBoundsContainExactEnumeration_OnTinySpaces) {
+    std::mt19937_64 rng(0x61D0ULL);
+
+    PartitionFunction<double> pfunc;
+
+    // Epsilon=0 gives an exact oracle via enumeration (upper==lower, delta==0).
+    constexpr double oracle_eps = 0.0;
+
+    // Use a non-zero epsilon for GD to exercise its approximation behavior.
+    // We only require the true value to be contained in its bounds.
+    constexpr double gd_eps = 0.2;
+    constexpr int cases = 200;
+
+    PartitionFunction<double>::ComputeOptions gd_opts;
+    gd_opts.allow_exact_enumeration = false; // avoid accidentally bypassing GD on tiny spaces
+
+    for (int i = 0; i < cases; ++i) {
+        auto emat = makeRandomTinyEnergyMatrix<double>(rng);
+
+        const auto exact = pfunc.compute(emat, oracle_eps, PartitionFunctionMethod::AStar);
+        const auto gd = pfunc.compute(emat, gd_eps, PartitionFunctionMethod::GradientDescent, gd_opts);
+
+        SCOPED_TRACE(::testing::Message() << "case=" << i
+                                          << " exact=" << exact.lower_bound
+                                          << " gd{lb=" << gd.lower_bound << ", ub=" << gd.upper_bound
+                                          << ", delta=" << gd.delta << ", converged=" << gd.converged
+                                          << ", confs=" << gd.num_confs << "}");
+
+        ASSERT_TRUE(exact.converged);
+        EXPECT_DOUBLE_EQ(exact.delta, 0.0);
+        EXPECT_EQ(exact.lower_bound, exact.upper_bound);
+
+        // Bound ordering must hold.
+        EXPECT_LE(gd.lower_bound, gd.upper_bound + 1e-12);
+
+        // True value (exact) must be within GD bounds.
+        EXPECT_LE(gd.lower_bound, exact.lower_bound + 1e-10);
+        EXPECT_GE(gd.upper_bound, exact.lower_bound - 1e-10);
+
+        // Sanity: should explore at least one conformation.
+        EXPECT_GT(gd.num_confs, 0);
+    }
+}

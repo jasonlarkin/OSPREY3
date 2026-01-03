@@ -35,6 +35,10 @@ public:
      * Get one-body energy for position and conformation.
      */
     [[nodiscard]] T getOneBody(int32_t pos, int32_t conf) const;
+
+    // Hot-path accessor for algorithms that already ensure indices are valid.
+    // This avoids redundant validation overhead in tight loops.
+    [[nodiscard]] T getOneBodyUnchecked(int32_t pos, int32_t conf) const noexcept;
     
     /**
      * Set one-body energy for position and conformation.
@@ -50,6 +54,14 @@ public:
      * @param conf2 Conformation at second position
      */
     [[nodiscard]] T getPairwise(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const;
+
+    // Hot-path accessor for algorithms that already guarantee pos1 > pos2 and valid conf indices.
+    // Avoids the pos-swap branch and validation overhead.
+    [[nodiscard]] T getPairwiseAssumingPos1Greater(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept;
+
+    // Hot-path accessor that allows either ordering (swaps if needed) but performs no validation.
+    // Requires pos1 != pos2 and valid indices.
+    [[nodiscard]] T getPairwiseUnchecked(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept;
     
     /**
      * Set pairwise energy between two conformations.
@@ -93,6 +105,20 @@ private:
     std::vector<T> one_body_;
     std::vector<T> pairwise_;
     T const_term_ = T(0);
+
+    // Precomputed offsets for O(1) indexing.
+    // one_body_offsets_[pos] = starting index of one-body energies for that position.
+    // one_body_offsets_.size() == num_positions_ + 1, with last element == total one-body size.
+    std::vector<int32_t> one_body_offsets_;
+
+    // pairwise_offsets_[pairIndex(pos1,pos2)] = starting index for (pos1,pos2) pairwise block, where pos1 > pos2.
+    // pairwise_offsets_.size() == num_positions_*(num_positions_-1)/2.
+    std::vector<int32_t> pairwise_offsets_;
+
+    [[nodiscard]] static int32_t pairPosIndex(int32_t pos1, int32_t pos2) noexcept {
+        // Require pos1 > pos2. This matches the Java triangular packing: pos1*(pos1-1)/2 + pos2.
+        return (pos1 * (pos1 - 1)) / 2 + pos2;
+    }
     
     /**
      * Compute one-body index: pos * max_confs + conf

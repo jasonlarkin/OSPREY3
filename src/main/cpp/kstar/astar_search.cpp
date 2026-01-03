@@ -33,7 +33,8 @@ void AStarSearch<T>::precomputeUndefinedEnergies() {
                 T min_energy = std::numeric_limits<T>::max();
                 
                 for (int32_t rc2 = 0; rc2 < num_confs_per_pos_[pos2]; ++rc2) {
-                    T pairwise = emat_.getPairwise(pos1, rc1, pos2, rc2);
+                    // pos1 > pos2 by loop structure
+                    T pairwise = emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2);
                     min_energy = std::min(min_energy, pairwise);
                 }
                 
@@ -63,7 +64,7 @@ T AStarSearch<T>::computeGScore(const AStarNode<T>& node) const {
     for (size_t i = 0; i < assigned_positions.size(); ++i) {
         int32_t pos = assigned_positions[i];
         int16_t rc = assigned_rcs[i];
-        gscore += emat_.getOneBody(pos, rc);
+        gscore += emat_.getOneBodyUnchecked(pos, rc);
     }
 
     // Add pairwise energies (only for pos1 > pos2 to avoid double counting)
@@ -75,7 +76,8 @@ T AStarSearch<T>::computeGScore(const AStarNode<T>& node) const {
             int32_t pos2 = assigned_positions[j];
             int16_t rc2 = assigned_rcs[j];
 
-            gscore += emat_.getPairwise(pos1, rc1, pos2, rc2);
+            // assigned_positions is collected in ascending pos order, so pos1 > pos2 here
+            gscore += emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2);
         }
     }
     
@@ -142,13 +144,15 @@ void AStarSearch<T>::computeCachedEnergies(
 
         for (int32_t rc1 = 0; rc1 < num_confs_per_pos_[pos1]; ++rc1) {
             // Start with one-body energy
-            T energy = emat_.getOneBody(pos1, rc1);
+            T energy = emat_.getOneBodyUnchecked(pos1, rc1);
 
             // Add pairwise with assigned positions
             for (size_t i = 0; i < assigned_positions.size(); ++i) {
                 int32_t pos2 = assigned_positions[i];
                 int16_t rc2 = assigned_rcs[i];
-                energy += emat_.getPairwise(pos1, rc1, pos2, rc2);
+                // With sequential expansion order (getNextPosition = first unassigned),
+                // assigned positions are always < pos1, so pos1 > pos2 holds.
+                energy += emat_.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2);
             }
 
             // Add optimal pairwise with other unassigned positions

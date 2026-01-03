@@ -699,9 +699,6 @@ template<std::floating_point T>
     };
 
     auto do_score_batch = [&](int numScores) -> bool {
-        using clock = std::chrono::steady_clock;
-        auto t0 = clock::now();
-
         int got = 0;
         for (int i = 0; i < numScores; ++i) {
             auto leaf = next_scored_leaf();
@@ -726,12 +723,6 @@ template<std::floating_point T>
             ++got;
         }
 
-        auto t1 = clock::now();
-        std::chrono::duration<double> dt = t1 - t0;
-        if (dt.count() > 0.0 && got > 0) {
-            scoreOps = static_cast<double>(got) / dt.count();
-        }
-
         // update slope like Java onScores
         double delta = calc_delta();
         dScore = calcSlope(delta, prevDelta, dEnergy);
@@ -745,9 +736,6 @@ template<std::floating_point T>
         if (buf.empty()) {
             return false;
         }
-
-        using clock = std::chrono::steady_clock;
-        auto t0 = clock::now();
 
         ScoredLeaf leaf = std::move(buf.front());
         buf.pop_front();
@@ -773,12 +761,6 @@ template<std::floating_point T>
 
         log10_min_lower_score_w = std::min(log10_min_lower_score_w, log10_score_w);
         ++num_energied;
-
-        auto t1 = clock::now();
-        std::chrono::duration<double> dt = t1 - t0;
-        if (dt.count() > 0.0) {
-            energyOps = 1.0 / dt.count();
-        }
 
         // update slope like Java onEnergy
         double delta = calc_delta();

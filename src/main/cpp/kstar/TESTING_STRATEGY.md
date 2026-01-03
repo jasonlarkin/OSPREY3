@@ -85,6 +85,27 @@ These are useful once ConfSpace integration exists, but they are not part of Pha
 **Remaining work**:
 - Full confspace-backed K* score end-to-end equivalence with Java’s `TestKStar.java` requires Phase-2+ plumbing (ConfSpace/JNA and energy pipeline integration).
 
+## Correctness gate for performance work (A*, ConfSearch, PartitionFunction)
+
+When iterating on performance (new A* variants, tuning `astar_search_fast`, changing open-set behavior, refactoring `partition_function.cpp`, etc.), keep the correctness bar explicit:
+
+- **Must stay green** (Java-parity in C++):
+
+```bash
+ctest --test-dir build/cpp/kstar --output-on-failure -R ^PartitionFunction_VERBATIM\\.
+ctest --test-dir build/cpp/kstar --output-on-failure -R ^EnergyMatrix_JavaComparison\\.
+```
+
+- **Recommended umbrella** (runs the curated verbatim suite as a single test):
+
+```bash
+ctest --test-dir build/cpp/kstar --output-on-failure -R ^kstar\\.verbatim_all$
+```
+
+Notes:
+- These tests validate C++ results against **Java-derived expectations** and/or **Java-exported inputs** (`.emat.bin`).
+- If a test is skipped due to missing `.emat.bin`, regenerate using the Java exporter referenced in the test skip message (see `src/test/cpp/kstar/test_partition_function_gtest.cpp`).
+
 **Test cases from Java**:
 - `test2RL0()` - 21 sequences with exact expected K* scores
 - Can use these as ground truth
@@ -200,13 +221,16 @@ This repo uses CTest labels to keep categories clean:
 - SYNTHESIZED (non-precision): `kstar;gtest;synthesized;...`
 - SYNTHESIZED precision tiers: `kstar;gtest;synthesized;precision;tier0|tier1;...`
 - SYNTHESIZED sanitizers: `kstar;gtest;synthesized;sanitizers`
+- SYNTHESIZED static analysis: `kstar;static_analysis;clang_tidy;synthesized`
 
 Convenience entrypoints:
 
 - `kstar.precision_all` (labels: `kstar;gtest;synthesized;precision`)
 - `kstar.sanitizers_smoke` (labels: `kstar;gtest;synthesized;sanitizers`; only present when built with `KSTAR_ENABLE_SANITIZERS=ON`)
+- `kstar.clang_tidy` (labels: `kstar;static_analysis;clang_tidy;synthesized`)
 - See `src/main/cpp/kstar/PRECISION_TESTING.md` for run commands and rationale.
 - See `src/main/cpp/kstar/SANITIZER_TESTING.md` for sanitizer build/run commands.
+- See `src/main/cpp/kstar/STATIC_ANALYSIS.md` for clang-tidy notes and scope.
 
 ## Next Immediate Steps
 
