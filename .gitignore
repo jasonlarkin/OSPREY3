@@ -14,6 +14,30 @@ buildSrc/.gradle/
 **/perf.data
 **/perf.data.*
 
+# fuzz / regression binary inputs (local-only; do not commit)
+/src/test_data/kstar/fuzz/**/*.bin
+/build/**/test_data/fuzz/**/*.bin
+
+# local reference notes (do not commit)
+/src/main/cpp/kstar/*.cpp.md
+/src/main/cpp/kstar/*.hpp.md
+
+# local reference notes (do not commit)
+/src/main/cpp/kstar/astar_node.md
+/src/main/cpp/kstar/astar_node_fast.md
+/src/main/cpp/kstar/astar_search_.md
+/src/main/cpp/kstar/astar_search_fast_.md
+/src/main/cpp/kstar/conf_.md
+/src/main/cpp/kstar/conf_index.md
+/src/main/cpp/kstar/conf_ranker.md
+/src/main/cpp/kstar/conf_search.md
+/src/main/cpp/kstar/conf_search_cache.md
+
+# local reference notes (do not commit)
+/src/main/cpp/kstar/kstar_parallel.md
+/src/main/cpp/kstar/kstar_score.md
+/src/main/cpp/kstar/partition_function_mpfr.md
+
 # sensitive/local-only files (never commit)
 /osprey-dev.pem
 /aws_instance_*.txt

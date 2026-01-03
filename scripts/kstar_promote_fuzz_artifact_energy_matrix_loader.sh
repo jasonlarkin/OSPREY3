@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Promote a fuzz artifact into a repo-local regression input for EnergyMatrixLoader,
-# and ensure the regression gtest exists.
+# Promote a fuzz artifact into a local regression input for EnergyMatrixLoader.
+# This intentionally defaults to a build-local directory so we don't require committing
+# binary inputs to the repo.
 #
 # Usage:
 #   ./scripts/kstar_promote_fuzz_artifact_energy_matrix_loader.sh <artifact_file> [name]
 #
-# Output:
-#   src/test_data/kstar/fuzz/energy_matrix_loader/<name>.bin
+# Output (default):
+#   build/cpp/kstar/test_data/fuzz/energy_matrix_loader/<name>.bin
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ARTIFACT="${1:-}"
@@ -34,7 +35,7 @@ if [[ -z "${NAME}" ]]; then
   NAME="${base//[^A-Za-z0-9_.-]/_}"
 fi
 
-OUT_DIR="${REPO_ROOT}/src/test_data/kstar/fuzz/energy_matrix_loader"
+OUT_DIR="${REPO_ROOT}/build/cpp/kstar/test_data/fuzz/energy_matrix_loader"
 mkdir -p "${OUT_DIR}"
 
 OUT_FILE="${OUT_DIR}/${NAME}.bin"
@@ -52,7 +53,7 @@ else
   echo "[promote] minimization failed; stored original artifact bytes"
 fi
 
-echo "[promote] now add/commit:"
+echo "[promote] kept build-local (not committed):"
 echo "  ${OUT_FILE}"
 echo "[promote] run regression test via:"
 echo "  ctest --test-dir build/cpp/kstar-coverage -R kstar.energy_matrix_loader_regression -V"
