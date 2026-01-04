@@ -166,7 +166,7 @@ flowchart LR
 **Not part of Phase-1 (intentionally out of scope for C++ parity today):**
 - Continuous minimization and the full Java energy/ref-energy pipeline during pfunc compute (Java bench runs this unless isolated).
 
-## C++20 usage (what is actually used, and why)
+## C++20 usage (what is used and why)
 
 ### `std::floating_point` (C++20 concepts)
 - Used to constrain all numeric templates to float/double-like types.

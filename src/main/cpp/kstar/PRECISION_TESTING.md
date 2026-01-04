@@ -31,6 +31,15 @@ Assuming a configured build tree (example uses the coverage build):
 ctest --test-dir build/cpp/kstar-coverage --output-on-failure -L precision
 ```
 
+## Fast build (only the precision binaries)
+
+In a fresh build tree, `cmake --build` without a target may build every test binary.
+To build only the executables used by the precision suite:
+
+```bash
+cmake --build build/cpp/kstar-coverage -j --target kstar_precision_build
+```
+
 Run a single tier:
 
 ```bash
@@ -120,6 +129,49 @@ Current implementation:
 
 ## Relationship to other precision work (future)
 
-- Tier 2 (planned): CBMC-style bounded proofs for restricted domains (small, pure functions only).
+- Tier 2: **CBMC-style bounded proofs** for restricted domains (small, pure functions only).
 - Higher-precision backends (planned/optional): `PartitionFunctionMPFR` for arbitrary precision comparisons.
 
+### Tier 2 (CBMC): log-space early-return/cutoff proofs
+
+This tier runs CBMC against a small harness that targets only the **early-return** branches in `log_space.hpp`
+(so CBMC does not need to reason about `pow/log10` internals).
+
+- Harness: `src/test/cpp/kstar/cbmc_log_space_tier2.cpp`
+- CTest entry: `kstar.cbmc_log_space_tier2`
+- Labels: `kstar;cbmc;synthesized;precision;tier2;log_space`
+
+Run:
+
+```bash
+ctest --test-dir build/cpp/kstar-coverage --output-on-failure -R kstar\\.cbmc_log_space_tier2
+```
+
+If `cbmc` is not installed, the test **skips**. Install:
+
+```bash
+sudo apt-get install -y cbmc
+```
+
+### Tier 2 (CBMC): PartitionFunction delta/cutoff invariants
+
+This tier targets the **delta computation** structure used in `partition_function.cpp` (A* and GD paths),
+specifically the sentinel/cutoff branches that do not require modeling `pow` precisely.
+
+- Harness: `src/test/cpp/kstar/cbmc_partition_function_tier2.cpp`
+- CTest entry: `kstar.cbmc_partition_function_tier2`
+- Labels: `kstar;cbmc;synthesized;precision;tier2;partition_function`
+
+Run:
+
+```bash
+ctest --test-dir build/cpp/kstar-coverage --output-on-failure -R kstar\\.cbmc_partition_function_tier2
+```
+
+### Tier 2 (CBMC): single entrypoint
+
+Run all Tier 2 CBMC checks:
+
+```bash
+ctest --test-dir build/cpp/kstar-coverage --output-on-failure -R kstar\\.cbmc_all
+```
