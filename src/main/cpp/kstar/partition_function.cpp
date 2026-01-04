@@ -101,6 +101,7 @@ template<std::floating_point T>
         auto root = AStarNodeFast<T>::root(num_positions);
         root.g_score = astar.computeGScore(root);
         root.h_score = astar.computeHScore(root);
+        root.f_score = root.g_score + root.h_score;
         open_set.push(root);
 
         T log10_q_lower = std::numeric_limits<T>::lowest();
@@ -136,8 +137,8 @@ template<std::floating_point T>
                 }
             } else {
                 auto children = astar.expand(node);
-                for (const auto& child : children) {
-                    open_set.push(child);
+                for (auto& child : children) {
+                    open_set.push(std::move(child));
                 }
             }
 
@@ -339,7 +340,7 @@ template<std::floating_point T>
                     std::cerr << "    log10_remaining_estimate: " << log10_remaining_estimate << "\n";
                 }
             } else {
-                // Open set is empty but we haven't evaluated all conformations
+                // Open set is empty but haven't evaluated all conformations
                 // Use best_upper_bound (best energy seen so far) as estimate
                 if (best_upper_bound < std::numeric_limits<T>::max()) {
                     T log10_max_weight = log10BoltzmannWeight(best_upper_bound);
@@ -360,7 +361,7 @@ template<std::floating_point T>
         }
         
         // Upper bound: log10(q_lower + remaining_estimate)
-        // Only compute if we have both values
+        // Only compute if have both values
         if (log10_q_lower > std::numeric_limits<T>::lowest() && 
             log10_remaining_estimate > std::numeric_limits<T>::lowest()) {
             // CRITICAL: Only compute upper bound, never modify lower bound here
@@ -397,8 +398,8 @@ template<std::floating_point T>
         std::cerr << "    num_confs_evaluated: " << num_confs_evaluated << "\n";
     }
     
-    // If open_set is empty but we haven't evaluated all conformations, 
-    // we need to update q_upper one more time
+    // If open_set is empty but haven't evaluated all conformations, 
+    // need to update q_upper one more time
     int64_t remaining_confs = total_confs - num_confs_evaluated;
     if (remaining_confs > 0 && log10_q_upper == std::numeric_limits<T>::lowest()) {
         // Use best_upper_bound as conservative estimate
@@ -525,7 +526,7 @@ template<std::floating_point T>
     // This allows tightening the upper bound using many scores cheaply, and tightening
     // the lower bound using (more expensive) energies. In OSPREY, "score" is a lower
     // bound and "energy" is a minimized energy; in this Phase-1 C++ port, both are
-    // derived from the EnergyMatrix (no minimization), but we preserve the bound math.
+    // derived from the EnergyMatrix (no minimization), but preserve the bound math.
 
     PartitionFunctionResult<T> result;
     result.converged = false;
@@ -565,7 +566,7 @@ template<std::floating_point T>
     }
 
     // Splitter buffer: score-reader pushes, energy-reader pops (score must be ahead).
-    // We only need the score in Phase-1 (score==energy), so buffer stores score values.
+    // only need the score in Phase-1 (score==energy), so buffer stores score values.
     std::deque<T> buf;
 
     // State in log10 space (initialize to log10(0) = -inf)
@@ -603,7 +604,7 @@ template<std::floating_point T>
             std::uint64_t rem = total_confs_u64 - scoredCount;
             return static_cast<T>(std::log10(static_cast<long double>(rem)));
         }
-        // If we can't represent exact total, scoredCount is negligible relative to total
+        // If can't represent exact total, scoredCount is negligible relative to total
         return static_cast<T>(log10_total_confs);
     };
 
@@ -804,7 +805,7 @@ template<std::floating_point T>
         }
     }
 
-    // If we never energied anything, still produce bounds from scores
+    // If never energied anything, still produce bounds from scores
     // (this can happen if epsilon is extremely loose)
     T log10_lb = (log10_energy_sum > neg_inf) ? log10_energy_sum : neg_inf;
     T log10_ub = get_upper_bound_log10();

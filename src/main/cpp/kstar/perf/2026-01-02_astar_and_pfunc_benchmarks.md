@@ -1,4 +1,4 @@
-# 2026-01-02 — A* baseline vs fast: benchmark results + interpretation
+# 2025-12-28 — A* baseline vs fast: benchmark results + interpretation
 
 This note captures the initial microbenchmark runs for:
 - **A\* “hot-loop” search** (pure open-set / expand / g/h cost; no partition-function math)
@@ -23,7 +23,7 @@ cmake --build build/cpp/kstar --target kstar_run_partition_function_chrono
 ctest --test-dir build/cpp/kstar --output-on-failure -R kstar\\.bench_
 ```
 
-Important: Google Benchmark requires a **time suffix** on `--benchmark_min_time` (eg `0.5s`). We fixed our CMake targets to use suffixes.
+Important: Google Benchmark requires a **time suffix** on `--benchmark_min_time` (eg `0.5s`). Fixed our CMake targets to use suffixes.
 
 ## A* hot-loop benchmark (`kstar_astar_search_bench`)
 
@@ -47,7 +47,7 @@ BM_AStarFast_PopExpand/case:2/max_pops:1000/.../real_time       35905767 ns ... 
 
 - **Counters are consistent between baseline and fast** for the same case:
   - same `pops=1000`, same `expands/leaves/max_open`
-  - that’s what we want: both variants are exploring the same search in the same order (first-unassigned expansion order).
+  - both variants are exploring the same search in the same order (first-unassigned expansion order).
 - **Fast wins clearly for small position counts**:
   - case 0 (num_pos=4): ~0.66ms vs ~1.79ms
   - case 1 (num_pos=4): ~1.10ms vs ~2.25ms
@@ -200,6 +200,171 @@ Then compare baseline vs fast:
 - which spends more in `computeHScore`, `expand`, node copying, and priority queue internals?
 - check whether the “fast” node representation is causing more copies/moves (or larger object size hurts cache).
 
+## 2026-01-03 — Follow-up: incremental / batched H-score and open-set allocation wins
+
+This section captures subsequent micro-optimizations to the **fast** A* variant that preserve semantics
+but reduce redundant work and allocation churn.
+
+### Correctness gate (must stay green)
+
+All performance changes below were kept behind the same correctness gates:
+
+```bash
+ctest --test-dir build/cpp/kstar --output-on-failure -R '^AStarSearch_SYNTHESIZED\.SearchBasicOperations$'
+ctest --test-dir build/cpp/kstar --output-on-failure -R ConfSearchAStar_SYNTHESIZED
+ctest --test-dir build/cpp/kstar --output-on-failure -R '^PartitionFunction_VERBATIM\.'
+ctest --test-dir build/cpp/kstar --output-on-failure -R '^EnergyMatrix_JavaComparison\.'
+ctest --test-dir build/cpp/kstar --output-on-failure -L gtest
+```
+
+### Change 1: eliminate redundant H-score recomputation across sibling children
+
+In `AStarSearchFast::expand(...)`, previously computed `computeHScore(child)` for each child, which
+repeated most of the same work per sibling.
+
+Refactored expand to compute:
+- shared, per-(pos1,rc1) “base” terms once per expansion, and
+- per-child terms using only the interaction with the newly-assigned `(k,rc)`.
+
+To keep this allocation-free in the hot loop, switched to reusable scratch buffers in `AStarSearchFast`.
+
+### Change 2: add `EnergyMatrix` row view + bulk child H computation
+
+Added a hot-path accessor:
+- `EnergyMatrix::getPairwiseRowAssumingPos1Greater(pos1, conf1, pos2) -> std::span<const T>`
+
+This exposes a contiguous row of `pairwise(pos1,conf1,pos2,conf2)` values for all `conf2` and allows
+`AStarSearchFast::expand` to compute all child H-scores in bulk with better cache locality and fewer
+per-element function calls.
+
+### Change 3: reserve open-set backing storage in the benchmark harness
+
+`perf report` showed `std::vector::_M_realloc_insert` due to priority-queue growth.
+In `bench_astar_search_google_benchmark.cpp`, now reserve the `std::vector` backing store used by
+`std::priority_queue` to reduce reallocations and allocator noise during the hot loop.
+
+### Benchmark result (case:2, max_pops=1000)
+
+Run (with repetitions/aggregates to reduce noise):
+
+```bash
+./build/cpp/kstar/kstar_astar_search_bench \
+  --benchmark_filter=case:2 \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=5 \
+  --benchmark_report_aggregates_only=true
+```
+
+Observed on the same WSL host class (“Run on (4 X 2995.2 MHz CPU s)”):
+
+```text
+BM_AStarBaseline_PopExpand/case:2/.../real_time_mean      ~9.61 ms   (CV ~15%)
+BM_AStarFast_PopExpand/case:2/.../real_time_mean         ~1.02 ms   (CV ~4.7%)
+```
+
+Counters remained identical (`pops=1000`, `expands=777`, `leaves=223`, `max_open=7.797k`), which is the
+critical evidence that the optimization did not change search behavior.
+
+### perf summary (fast, case:2)
+
+After these changes, the dominant costs are still in the A* hot loop, but allocator noise is no longer
+prominent. Representative top lines include:
+
+```text
+~37%  AStarSearchFast<double>::expand
+~17%  EnergyMatrix<double>::getPairwiseAssumingPos1Greater
+~3-4% AStarSearchFast<double>::sumUndefinedRange
+~2-3% EnergyMatrix<double>::getOneBodyUnchecked
+~2%   EnergyMatrix<double>::getPairwiseRowAssumingPos1Greater
+```
+
+Interpretation:
+- The next ceiling is now **expand + raw pairwise access volume**, not indexing/validation or open-set allocation.
+
+## 2026-01-03 — Follow-up: reducing pairwise accessor overhead inside expand()
+
+## Benchmark workload sizes (P and r_i) and how this relates to “# atoms”
+
+When reading perf/benchmark results, it’s important to distinguish two different “size” notions:
+
+- **Atom count** (eg “500–17k atoms” in OSPREY examples) mainly affects the **cost to compute energies**
+  (forcefield/score evaluation, minimization, energy function plumbing) *before* an energy matrix exists.
+- **EnergyMatrix / K\* search size** is governed by:
+  - **P = number of design positions**
+  - **r_i = number of rotamers/conformations at position i**
+
+For an `EnergyMatrix` (as used by our A\* hot-loop microbenchmarks), the key derived counts are:
+
+- **1-body term count**: \( \sum_i r_i \)
+- **2-body term count**: \( \sum_{i>j} r_i r_j \)
+
+These counts define the size of the precomputed matrix and heavily influence search throughput, independent
+of how many atoms were in the original structure used to generate the energies.
+
+### Current profiling benchmark shapes (from `scripts/inspect_emat_bin.py`)
+
+The A\* hot-loop benchmark inputs we’ve been profiling are the 2RL0 matrices:
+
+- **2RL0 Protein**
+  - `P=4`, `r_i=[5,6,9,19]`
+  - `oneBodyTerms=sum(r_i)=39`
+  - `pairwiseTerms=sum_{i>j}(r_i*r_j)=509`
+
+- **2RL0 Ligand**
+  - `P=4`, `r_i=[5,28,8,19]`
+  - `oneBodyTerms=60`
+  - `pairwiseTerms=1183`
+
+- **2RL0 Complex** (**case:2** in the benchmark; main perf target)
+  - `P=8`, `r_i=[5,28,8,19,5,6,9,19]`
+  - `oneBodyTerms=99`
+  - `pairwiseTerms=4032`
+
+Interpretation:
+- These are **small P** (4–8 positions) but moderately skewed `r_i` (some positions have 19–28 RCs).
+- That’s enough to produce a non-trivial open-set and inner-loop workload, but it’s still far from the largest
+  possible production design spaces.
+
+### Motivation
+
+`perf report` for the fast A* hot loop still showed substantial time in:
+- `EnergyMatrix<double>::getPairwiseAssumingPos1Greater`
+
+even after earlier indexing/validation fixes.
+
+### Change
+
+Introduced a lower-level view:
+- `EnergyMatrix::getPairwiseBlockAssumingPos1Greater(pos1,pos2)` returning `{data,n1,n2}`
+
+and rewrote `AStarSearchFast::expand` to consume these blocks directly (pointer + stride)
+to batch:
+- adding pairwise energies for assigned positions, and
+- computing child g-scores across all RCs,
+without repeated function calls in inner loops.
+
+### Result (case:2)
+
+Representative benchmark output (mean across 5 repetitions):
+
+```text
+BM_AStarBaseline_PopExpand/case:2/.../real_time_mean  ~10.06 ms
+BM_AStarFast_PopExpand/case:2/.../real_time_mean     ~0.81 ms
+```
+
+Representative perf top lines for `BM_AStarFast_PopExpand/case:2/max_pops:1000`:
+
+```text
+~42%  AStarSearchFast<double>::expand
+~3.5% AStarSearchFast<double>::sumUndefinedRangeUnchecked
+~2.8% EnergyMatrix<double>::getOneBodyUnchecked
+~2.0% EnergyMatrix<double>::getPairwiseBlockAssumingPos1Greater
+```
+
+Interpretation:
+- Pairwise accessor overhead moved off the top lines, and the dominant cost is now inside `expand` itself
+  (the remaining min-reduction work across RCs).
+
 ## Partition function benchmark (`kstar_partition_function_bench`)
 
 Output (Google Benchmark):
@@ -221,7 +386,7 @@ BM_Pfunc_GD/case:2 ... 92233898 ns ... num_confs_eval=34 num_pos=8
 - End-to-end, **AStarFast is often faster** than baseline, including on some larger cases.
 - The A* hot-loop result (“fast loses at num_pos=8”) vs the end-to-end result (“fast wins at case 2”) implies:
   - the “fast” wins may be coming from differences in *overall partition-function loop behavior* (eg how many leaf energies are fully evaluated before convergence), or cache effects across the full compute, not just open-set mechanics.
-  - we should be careful to optimize based on the metric we care about:
+  - should be careful to optimize based on the metric:
     - **pure search throughput** vs
     - **time-to-epsilon convergence**.
 
@@ -283,3 +448,35 @@ You ran the gate after the benchmark work and it is **green**:
 - **`kstar.verbatim_all`**:
   - Summary: “100% tests passed, 0 tests failed out of 1”
   - Runtime: ~7.7s (as reported by CTest)
+
+## 2026-01-03: Fast A* hot-loop refactor (eliminate per-expand allocations)
+
+### Change
+
+The A* benchmark harness (`kstar_astar_search_bench`) was previously allocating a fresh `std::vector` on every expansion:
+- `auto children = search.expand(node);`
+
+For the fast implementation, this meant per-expand heap activity even though the algorithm itself is written to avoid per-expand allocations.
+
+Fix:
+- Add `AStarSearchFast::expandInto(node, out)` to expand into caller-provided storage.
+- Update the benchmark loop to reuse a single `children_scratch` vector per search run when `expandInto` is available.
+
+### Benchmark impact (largest built-in case)
+
+Case: `case:3` (`test_data/2RL0.complex.emat.bin`), `max_pops=1000`
+
+- Baseline: ~40.5ms
+- Fast (post-change): ~1.93ms (observed; run-to-run varies with load)
+
+This is a large step-change and suggests the benchmark harness allocation was materially inflating the measured “fast” cost.
+
+### Updated perf top lines (fast, case:3)
+
+With the new hot loop, perf attributes time primarily to:
+- `osprey::kstar::AStarSearchFast<double>::expandInto` (still the dominant hotspot)
+- `AStarSearchFast<double>::sumUndefinedRangeUnchecked`
+- `EnergyMatrix<double>::getOneBodyUnchecked`
+- `EnergyMatrix<double>::getPairwiseBlockAssumingPos1Greater`
+
+Next action: use `perf annotate` on `expandInto` to identify which inner loop(s) dominate (min-reduction vs base accumulation vs child g-score bulk update).

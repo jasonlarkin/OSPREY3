@@ -68,8 +68,8 @@ std::optional<ScoredConf> AStarConfSearchBaseline<T>::nextConf() {
         }
 
         auto children = astar_->expand(node);
-        for (const auto& child : children) {
-            open_set_.push(child);
+        for (auto& child : children) {
+            open_set_.push(std::move(child));
         }
     }
     return std::nullopt;
@@ -99,6 +99,7 @@ void AStarConfSearchFast<T>::initOpenSet() {
     auto root = AStarNodeFast<T>::root(num_positions_);
     root.g_score = astar_->computeGScore(root);
     root.h_score = astar_->computeHScore(root);
+    root.f_score = root.g_score + root.h_score;
     open_set_.push(root);
 }
 
@@ -120,8 +121,8 @@ std::optional<ScoredConf> AStarConfSearchFast<T>::nextConf() {
         }
 
         auto children = astar_->expand(node);
-        for (const auto& child : children) {
-            open_set_.push(child);
+        for (auto& child : children) {
+            open_set_.push(std::move(child));
         }
     }
     return std::nullopt;

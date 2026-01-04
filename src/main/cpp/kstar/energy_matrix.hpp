@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <concepts>
 #include <stdexcept>
+#include <span>
 
 namespace osprey {
 namespace kstar {
@@ -58,6 +59,21 @@ public:
     // Hot-path accessor for algorithms that already guarantee pos1 > pos2 and valid conf indices.
     // Avoids the pos-swap branch and validation overhead.
     [[nodiscard]] T getPairwiseAssumingPos1Greater(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept;
+
+    // Hot-path accessor: returns a contiguous row of pairwise energies for fixed (pos1,conf1,pos2) and varying conf2.
+    // Requires pos1 > pos2 and valid indices; performs no validation.
+    [[nodiscard]] std::span<const T> getPairwiseRowAssumingPos1Greater(int32_t pos1, int32_t conf1, int32_t pos2) const noexcept;
+
+    struct PairwiseBlockView final {
+        const T* data = nullptr;  // size: n1 * n2, row-major by conf1
+        int32_t n1 = 0;           // num confs at pos1
+        int32_t n2 = 0;           // num confs at pos2
+    };
+
+    // Hot-path accessor: returns a view over the full (pos1,pos2) pairwise block, laid out as:
+    // data[conf1 * n2 + conf2] for 0<=conf1<n1 and 0<=conf2<n2.
+    // Requires pos1 > pos2; performs no validation.
+    [[nodiscard]] PairwiseBlockView getPairwiseBlockAssumingPos1Greater(int32_t pos1, int32_t pos2) const noexcept;
 
     // Hot-path accessor that allows either ordering (swaps if needed) but performs no validation.
     // Requires pos1 != pos2 and valid indices.

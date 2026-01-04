@@ -97,6 +97,25 @@ T EnergyMatrix<T>::getPairwiseAssumingPos1Greater(int32_t pos1, int32_t conf1, i
 }
 
 template<std::floating_point T>
+std::span<const T> EnergyMatrix<T>::getPairwiseRowAssumingPos1Greater(int32_t pos1, int32_t conf1, int32_t pos2) const noexcept {
+    const int32_t base = pairwise_offsets_[static_cast<size_t>(pairPosIndex(pos1, pos2))];
+    const int32_t n2 = num_confs_per_pos_[pos2];
+    const int32_t row0 = base + n2 * conf1;
+    return std::span<const T>(&pairwise_[static_cast<size_t>(row0)], static_cast<size_t>(n2));
+}
+
+template<std::floating_point T>
+typename EnergyMatrix<T>::PairwiseBlockView
+EnergyMatrix<T>::getPairwiseBlockAssumingPos1Greater(int32_t pos1, int32_t pos2) const noexcept {
+    const int32_t base = pairwise_offsets_[static_cast<size_t>(pairPosIndex(pos1, pos2))];
+    PairwiseBlockView v;
+    v.data = &pairwise_[static_cast<size_t>(base)];
+    v.n1 = num_confs_per_pos_[pos1];
+    v.n2 = num_confs_per_pos_[pos2];
+    return v;
+}
+
+template<std::floating_point T>
 T EnergyMatrix<T>::getPairwiseUnchecked(int32_t pos1, int32_t conf1, int32_t pos2, int32_t conf2) const noexcept {
     if (pos1 < pos2) {
         std::swap(pos1, pos2);

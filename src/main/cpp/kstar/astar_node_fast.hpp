@@ -14,7 +14,7 @@ namespace kstar {
  *
  * Goal: keep the baseline A* implementation intact for profiling/tracking, while
  * providing a faster node representation that avoids per-node heap allocations for
- * small position counts (common in our current benchmark cases).
+ * small position counts (common in current benchmark cases).
  *
  * This file is intentionally separate from `astar_node.hpp` to preserve the baseline.
  */
@@ -31,12 +31,14 @@ struct AStarNodeFast {
     // Energy bounds
     T g_score;  // Lower bound: actual energy of assigned positions
     T h_score;  // Upper bound heuristic: optimistic estimate for unassigned positions
+    // Cached f-score (g + h). This is used heavily by priority queue comparators.
+    T f_score;
 
     // Tree depth (number of assigned positions)
     int32_t level;
 
     [[nodiscard]] T getScore() const noexcept {
-        return g_score + h_score;
+        return f_score;
     }
 
     /**
@@ -53,6 +55,7 @@ struct AStarNodeFast {
         }
         node.g_score = T(0);
         node.h_score = T(0);
+        node.f_score = T(0);
         node.level = 0;
         return node;
     }

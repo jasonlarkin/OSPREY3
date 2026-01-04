@@ -34,15 +34,38 @@ cmake --build build/cpp/kstar --target kstar_run_partition_function_chrono
 From repo root:
 
 ```bash
-./build/cpp/kstar/kstar_partition_function_bench --benchmark_min_time=0.5
-./build/cpp/kstar/kstar_astar_search_bench --benchmark_min_time=0.5
+./build/cpp/kstar/kstar_partition_function_bench --benchmark_min_time=0.5s
+./build/cpp/kstar/kstar_astar_search_bench --benchmark_min_time=0.5s
 ```
 
 Useful flags:
 
 ```bash
-./build/cpp/kstar/kstar_astar_search_bench --benchmark_filter=BM_AStar.* --benchmark_min_time=1.0
-./build/cpp/kstar/kstar_partition_function_bench --benchmark_filter=BM_Pfunc_AStar.* --benchmark_min_time=1.0
+./build/cpp/kstar/kstar_astar_search_bench --benchmark_filter=BM_AStar.* --benchmark_min_time=1s
+./build/cpp/kstar/kstar_partition_function_bench --benchmark_filter=BM_Pfunc_AStar.* --benchmark_min_time=1s
+```
+
+## Inspect benchmark EnergyMatrix sizes (helper script)
+
+To quickly report `numPositions`, `numConfsPerPos`, and the implied 1-body / pairwise term counts:
+
+```bash
+python3 scripts/inspect_emat_bin.py --discover --build-dir build/cpp/kstar
+```
+
+Or inspect a specific file:
+
+```bash
+python3 scripts/inspect_emat_bin.py build/cpp/kstar/test_data/2RL0.TestSimplePartitionFunction.complex.emat.bin
+```
+
+## Benchmark against a real production EnergyMatrix (external file; not committed)
+
+If you have a Java-exported `*.emat.bin` from a real design case, you can benchmark it without adding it to git:
+
+```bash
+export OSPREY_KSTAR_ASTAR_BENCH_EMAT=/abs/path/to/your.production.emat.bin
+./build/cpp/kstar/kstar_astar_search_bench --benchmark_filter=case:5 --benchmark_min_time=1s
 ```
 
 If test data resolution fails, set:
