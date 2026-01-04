@@ -646,3 +646,103 @@ TEST(PartitionFunction_PRECISION_Tier1, Monotonicity_EnergyLowering_DoesNotDecre
         expectGEWithTol(after.lower_bound, before.lower_bound, 1e-10);
     }
 }
+
+TEST(PartitionFunction_PRECISION_Tier1, NonFinitePolicy_NaNRejected_ReturnsNonConvergedNaN) {
+    // Policy: NaN anywhere in the EnergyMatrix is invalid input and must not be fed into A* queues.
+    // We expect a non-converged result with NaN bounds (not a crash, not a "converged" answer).
+    using T = double;
+
+    const int32_t npos = 2;
+    const std::vector<int32_t> nconfs = {2, 2};
+    EnergyMatrix<T> emat(npos, nconfs);
+    emat.setConstTerm(T(0));
+    for (int32_t pos = 0; pos < npos; ++pos) {
+        for (int32_t rc = 0; rc < nconfs[static_cast<std::size_t>(pos)]; ++rc) {
+            emat.setOneBody(pos, rc, T(0));
+        }
+    }
+    for (int32_t rc1 = 0; rc1 < 2; ++rc1) {
+        for (int32_t rc2 = 0; rc2 < 2; ++rc2) {
+            emat.setPairwise(1, rc1, 0, rc2, T(0));
+        }
+    }
+
+    auto emat_nan = emat;
+    emat_nan.setOneBody(0, 1, std::numeric_limits<T>::quiet_NaN());
+
+    PartitionFunction<T> pfunc;
+    PartitionFunction<T>::ComputeOptions opts;
+
+    for (bool allow_exact : {true, false}) {
+        opts.allow_exact_enumeration = allow_exact;
+        for (AStarVariant variant : {AStarVariant::Baseline, AStarVariant::Fast}) {
+            opts.astar_variant = variant;
+            const auto r = pfunc.compute(emat_nan, T(0.0), PartitionFunctionMethod::AStar, opts);
+            EXPECT_FALSE(r.converged);
+            EXPECT_EQ(r.num_confs, 0);
+            EXPECT_TRUE(std::isnan(r.lower_bound));
+            EXPECT_TRUE(std::isnan(r.upper_bound));
+            EXPECT_DOUBLE_EQ(r.delta, 1.0);
+        }
+    }
+}
+
+TEST(PartitionFunction_PRECISION_Tier1, NonFinitePolicy_PosInfMeansZeroWeight) {
+    // +Inf energy => weight 0, so affected conformations contribute nothing.
+    // Construct a tiny space where exactly two conformations get +Inf energy.
+    using T = double;
+    const int32_t npos = 2;
+    const std::vector<int32_t> nconfs = {2, 2};
+    EnergyMatrix<T> emat(npos, nconfs);
+    emat.setConstTerm(T(0));
+    for (int32_t pos = 0; pos < npos; ++pos) {
+        for (int32_t rc = 0; rc < 2; ++rc) {
+            emat.setOneBody(pos, rc, T(0));
+        }
+    }
+    // Make any conformation choosing (pos0, rc1) have +Inf energy => 2 conformations total.
+    emat.setOneBody(0, 1, std::numeric_limits<T>::infinity());
+
+    for (int32_t rc1 = 0; rc1 < 2; ++rc1) {
+        for (int32_t rc2 = 0; rc2 < 2; ++rc2) {
+            emat.setPairwise(1, rc1, 0, rc2, T(0));
+        }
+    }
+
+    PartitionFunction<T> pfunc;
+    const auto r = pfunc.compute(emat, T(0.0), PartitionFunctionMethod::AStar);
+    ASSERT_TRUE(r.converged);
+    EXPECT_DOUBLE_EQ(r.delta, 0.0);
+    EXPECT_EQ(r.lower_bound, r.upper_bound);
+    // Remaining 2 conformations each have energy 0 => Z = 2 => log10(Z) = log10(2)
+    EXPECT_NEAR(r.lower_bound, std::log10(2.0), 1e-12);
+}
+
+TEST(PartitionFunction_PRECISION_Tier1, NonFinitePolicy_NegInfDominates_ClampedToMax) {
+    // -Inf energy => exp(+Inf) dominates mathematically, but this implementation clamps to max()
+    // to avoid infinities in log-space.
+    using T = double;
+    const int32_t npos = 2;
+    const std::vector<int32_t> nconfs = {2, 2};
+    EnergyMatrix<T> emat(npos, nconfs);
+    emat.setConstTerm(T(0));
+    for (int32_t pos = 0; pos < npos; ++pos) {
+        for (int32_t rc = 0; rc < 2; ++rc) {
+            emat.setOneBody(pos, rc, T(0));
+        }
+    }
+    for (int32_t rc1 = 0; rc1 < 2; ++rc1) {
+        for (int32_t rc2 = 0; rc2 < 2; ++rc2) {
+            emat.setPairwise(1, rc1, 0, rc2, T(0));
+        }
+    }
+    // Exactly one conformation gets -Inf energy via a single pairwise term.
+    emat.setPairwise(1, 0, 0, 0, -std::numeric_limits<T>::infinity());
+
+    PartitionFunction<T> pfunc;
+    const auto r = pfunc.compute(emat, T(0.0), PartitionFunctionMethod::AStar);
+    ASSERT_TRUE(r.converged);
+    EXPECT_DOUBLE_EQ(r.delta, 0.0);
+    EXPECT_EQ(r.lower_bound, r.upper_bound);
+    EXPECT_EQ(r.lower_bound, std::numeric_limits<T>::max());
+}

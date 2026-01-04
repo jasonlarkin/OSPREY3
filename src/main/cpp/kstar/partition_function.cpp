@@ -24,6 +24,40 @@ namespace kstar {
 static constexpr bool kPfuncDebug = (OSPREY_KSTAR_PFUNC_DEBUG != 0);
 
 template<std::floating_point T>
+[[nodiscard]] static bool ematHasNaN(const EnergyMatrix<T>& emat) noexcept {
+    if (std::isnan(emat.getConstTerm())) {
+        return true;
+    }
+
+    const int32_t npos = emat.getNumPositions();
+
+    for (int32_t pos = 0; pos < npos; ++pos) {
+        const int32_t nconf = emat.getNumConfsAtPos(pos);
+        for (int32_t rc = 0; rc < nconf; ++rc) {
+            if (std::isnan(emat.getOneBodyUnchecked(pos, rc))) {
+                return true;
+            }
+        }
+    }
+
+    for (int32_t pos1 = 1; pos1 < npos; ++pos1) {
+        const int32_t n1 = emat.getNumConfsAtPos(pos1);
+        for (int32_t pos2 = 0; pos2 < pos1; ++pos2) {
+            const int32_t n2 = emat.getNumConfsAtPos(pos2);
+            for (int32_t rc1 = 0; rc1 < n1; ++rc1) {
+                for (int32_t rc2 = 0; rc2 < n2; ++rc2) {
+                    if (std::isnan(emat.getPairwiseAssumingPos1Greater(pos1, rc1, pos2, rc2))) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+template<std::floating_point T>
 [[nodiscard]] T PartitionFunction<T>::boltzmannWeight(T energy) noexcept {
     // Boltzmann weight: exp(-E/RT)
     // Handle edge cases
@@ -853,6 +887,18 @@ template<std::floating_point T>
     PartitionFunctionMethod method,
     ComputeOptions options
 ) {
+    // NaN energies are not meaningfully ordered and can break search invariants (priority queues, bounds).
+    // Treat NaN anywhere in the EnergyMatrix as invalid input and return a non-converged NaN result.
+    if (ematHasNaN(emat)) {
+        PartitionFunctionResult<T> bad;
+        bad.lower_bound = std::numeric_limits<T>::quiet_NaN();
+        bad.upper_bound = std::numeric_limits<T>::quiet_NaN();
+        bad.delta = T(1);
+        bad.num_confs = 0;
+        bad.converged = false;
+        return bad;
+    }
+
     // Keep the "exact enumeration" shortcut for A* path only, and only when allowed.
     if (options.allow_exact_enumeration && method == PartitionFunctionMethod::AStar) {
         constexpr int64_t exact_enum_threshold = 5'000'000;
