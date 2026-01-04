@@ -23,7 +23,7 @@ cmake --build build/cpp/kstar --target kstar_run_partition_function_chrono
 ctest --test-dir build/cpp/kstar --output-on-failure -R kstar\\.bench_
 ```
 
-Important: Google Benchmark requires a **time suffix** on `--benchmark_min_time` (eg `0.5s`). Fixed our CMake targets to use suffixes.
+Important: Google Benchmark requires a **time suffix** on `--benchmark_min_time` (eg `0.5s`). Fixed CMake targets to use suffixes.
 
 ## A* hot-loop benchmark (`kstar_astar_search_bench`)
 
@@ -54,7 +54,7 @@ BM_AStarFast_PopExpand/case:2/max_pops:1000/.../real_time       35905767 ns ... 
 - **Fast loses on case 2 (num_pos=8)** in the hot-loop benchmark:
   - ~35.9ms (fast) vs ~29.3ms (baseline)
 
-## 2026-01-03 — Follow-up: O(1) EnergyMatrix indexing (fixing the perf hotspot)
+## 2025-12-28 — Follow-up: O(1) EnergyMatrix indexing (fixing the perf hotspot)
 
 ### Root cause (from `perf report`, case:2)
 
@@ -200,7 +200,7 @@ Then compare baseline vs fast:
 - which spends more in `computeHScore`, `expand`, node copying, and priority queue internals?
 - check whether the “fast” node representation is causing more copies/moves (or larger object size hurts cache).
 
-## 2026-01-03 — Follow-up: incremental / batched H-score and open-set allocation wins
+## 2025-12-29 — Follow-up: incremental / batched H-score and open-set allocation wins
 
 This section captures subsequent micro-optimizations to the **fast** A* variant that preserve semantics
 but reduce redundant work and allocation churn.
@@ -281,7 +281,7 @@ prominent. Representative top lines include:
 Interpretation:
 - The next ceiling is now **expand + raw pairwise access volume**, not indexing/validation or open-set allocation.
 
-## 2026-01-03 — Follow-up: reducing pairwise accessor overhead inside expand()
+## 2025-12-29 — Follow-up: reducing pairwise accessor overhead inside expand()
 
 ## Benchmark workload sizes (P and r_i) and how this relates to “# atoms”
 
@@ -449,7 +449,7 @@ You ran the gate after the benchmark work and it is **green**:
   - Summary: “100% tests passed, 0 tests failed out of 1”
   - Runtime: ~7.7s (as reported by CTest)
 
-## 2026-01-03: Fast A* hot-loop refactor (eliminate per-expand allocations)
+## 2025-12-29: Fast A* hot-loop refactor (eliminate per-expand allocations)
 
 ### Change
 
@@ -480,3 +480,31 @@ With the new hot loop, perf attributes time primarily to:
 - `EnergyMatrix<double>::getPairwiseBlockAssumingPos1Greater`
 
 Next action: use `perf annotate` on `expandInto` to identify which inner loop(s) dominate (min-reduction vs base accumulation vs child g-score bulk update).
+
+## 2026-01-04: Stabilized case:3 baseline vs fast numbers (largest built-in)
+
+Ran with pinned core and longer min time to reduce noise:
+
+```bash
+cd build/cpp/kstar
+taskset -c 0 ./kstar_astar_search_bench \
+  --benchmark_filter='BM_AStarBaseline_PopExpand/case:3|BM_AStarFast_PopExpand/case:3' \
+  --benchmark_min_time=5s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
+```
+
+Results (case:3, `max_pops=1000`, `pops=1000`, `expands=994`, `leaves=6`, `max_open=26.756k`, `num_pos=7`):
+
+```text
+BM_AStarBaseline_PopExpand/case:3/.../real_time_mean   36.33 ms   (CV 19.34%)
+BM_AStarFast_PopExpand/case:3/.../real_time_mean       1.73 ms   (CV  0.54%)
+```
+
+Interpretation:
+- Fast is ~21× faster on mean (case:3) with tight variance.
+- Baseline still exhibits significant variance on this host, even pinned (likely allocator/heap churn and cache effects).
+
+Note on `min_time:0.500` in the printed benchmark name:
+- The benchmark is registered in code with `->MinTime(0.5)`, so Google Benchmark prints `min_time:0.500` even when running with a higher `--benchmark_min_time` flag.
+  Use the wall time + repetitions/CV as the stability indicator.
