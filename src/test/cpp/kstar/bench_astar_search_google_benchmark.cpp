@@ -170,11 +170,16 @@ static void BM_AStarBaseline_PopExpand(benchmark::State& state) {
 
     auto ematOpt = loadEmat(kCases[idx].emat_rel_path);
     if (!ematOpt) {
-        state.SkipWithError(
-            (std::string("Missing test data: ") + kCases[idx].emat_rel_path + "\n" +
-             osprey::kstar::testutil::describeTestDataSearch(kCases[idx].emat_rel_path))
-                .c_str()
-        );
+        std::string msg;
+        if (kCases[idx].emat_rel_path == nullptr) {
+            msg =
+                "Missing external benchmark data.\n"
+                "Set OSPREY_KSTAR_ASTAR_BENCH_EMAT to an absolute path to a Java-exported *.emat.bin.\n";
+        } else {
+            msg = std::string("Missing test data: ") + kCases[idx].emat_rel_path + "\n" +
+                  osprey::kstar::testutil::describeTestDataSearch(kCases[idx].emat_rel_path);
+        }
+        state.SkipWithError(msg.c_str());
         return;
     }
 
@@ -207,11 +212,16 @@ static void BM_AStarFast_PopExpand(benchmark::State& state) {
 
     auto ematOpt = loadEmat(kCases[idx].emat_rel_path);
     if (!ematOpt) {
-        state.SkipWithError(
-            (std::string("Missing test data: ") + kCases[idx].emat_rel_path + "\n" +
-             osprey::kstar::testutil::describeTestDataSearch(kCases[idx].emat_rel_path))
-                .c_str()
-        );
+        std::string msg;
+        if (kCases[idx].emat_rel_path == nullptr) {
+            msg =
+                "Missing external benchmark data.\n"
+                "Set OSPREY_KSTAR_ASTAR_BENCH_EMAT to an absolute path to a Java-exported *.emat.bin.\n";
+        } else {
+            msg = std::string("Missing test data: ") + kCases[idx].emat_rel_path + "\n" +
+                  osprey::kstar::testutil::describeTestDataSearch(kCases[idx].emat_rel_path);
+        }
+        state.SkipWithError(msg.c_str());
         return;
     }
 

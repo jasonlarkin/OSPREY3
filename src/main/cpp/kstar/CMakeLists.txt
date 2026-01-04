@@ -14,6 +14,7 @@ option(KSTAR_ENABLE_NATIVE_OPT "Enable -march=native (disable for portability)" 
 option(KSTAR_ENABLE_FUZZING "Enable libFuzzer-based fuzz targets (requires Clang)" OFF)
 option(KSTAR_ENABLE_SANITIZERS "Enable ASan/UBSan for kstar code/tests (use a dedicated build dir)" OFF)
 option(KSTAR_ENABLE_BENCHMARKS "Build kstar microbenchmarks (Google Benchmark)" OFF)
+option(KSTAR_ENABLE_PYTHON_BINDINGS "Build Python bindings (pybind11)" OFF)
 
 if (KSTAR_ENABLE_COVERAGE AND KSTAR_ENABLE_LLVM_COVERAGE)
     message(FATAL_ERROR "Enable only one coverage mode: KSTAR_ENABLE_COVERAGE (gcov/lcov) OR KSTAR_ENABLE_LLVM_COVERAGE (llvm-cov).")
@@ -137,6 +138,50 @@ target_include_directories(osprey_kstar_parallel PUBLIC
 target_link_libraries(osprey_kstar_parallel
     pthread
 )
+
+# When building Python bindings, the static library must be compiled with position-independent code
+# because it will be linked into a shared library (the Python module)
+if (KSTAR_ENABLE_PYTHON_BINDINGS)
+    set_target_properties(osprey_kstar_parallel PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
+# -----------------------------
+# Python bindings (pybind11, optional)
+# -----------------------------
+if (KSTAR_ENABLE_PYTHON_BINDINGS)
+    find_package(pybind11 QUIET)
+    if (NOT pybind11_FOUND)
+        # Fallback: use FetchContent if pybind11 is not installed
+        include(FetchContent)
+        FetchContent_Declare(
+            pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.11.1
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+
+    pybind11_add_module(kstar_cpp
+        python_bindings.cpp
+    )
+
+    target_link_libraries(kstar_cpp PRIVATE
+        osprey_kstar_parallel
+        pybind11::module
+    )
+
+    target_include_directories(kstar_cpp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cc/ConfEcalc
+    )
+
+    kstar_apply_default_warnings(kstar_cpp)
+    kstar_apply_perf_opts(kstar_cpp)
+
+    # Python bindings should not use sanitizers (causes issues with Python runtime)
+    # Coverage is also problematic with Python extensions
+    # So we skip those for the Python module
+endif()
 
 # -----------------------------
 # GoogleTest (optional, for kstar tests)
@@ -304,6 +349,72 @@ if (KSTAR_ENABLE_FUZZING)
         )
         add_dependencies(kstar_fuzz_conf_search_astar kstar_fuzz_conf_search_astar_corpus_dir)
         add_dependencies(kstar_fuzz_conf_search_astar kstar_fuzz_seed_conf_search_astar)
+    endif()
+
+    # Fuzz target: PartitionFunction on tiny synthetic EnergyMatrix instances.
+    set(FUZZ_PARTITION_FUNCTION_FILE ${REPO_ROOT}/src/test/cpp/kstar/fuzz_partition_function.cpp)
+    if (EXISTS ${FUZZ_PARTITION_FUNCTION_FILE})
+        set(FUZZ_PARTITION_FUNCTION_SEEDGEN_FILE ${REPO_ROOT}/src/test/cpp/kstar/gen_fuzz_seeds_partition_function.cpp)
+        if (EXISTS ${FUZZ_PARTITION_FUNCTION_SEEDGEN_FILE})
+            add_executable(gen_fuzz_seeds_partition_function ${FUZZ_PARTITION_FUNCTION_SEEDGEN_FILE})
+            # No libFuzzer linkage here; this is a simple utility binary.
+            target_compile_options(gen_fuzz_seeds_partition_function PRIVATE -O2)
+        endif()
+
+        add_executable(fuzz_partition_function ${FUZZ_PARTITION_FUNCTION_FILE})
+        target_include_directories(fuzz_partition_function PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${REPO_ROOT}/src/main/cpp/kstar
+            ${REPO_ROOT}/src/test/cpp/kstar
+        )
+        target_link_libraries(fuzz_partition_function PRIVATE osprey_kstar_parallel)
+        kstar_apply_default_warnings(fuzz_partition_function)
+        kstar_apply_perf_opts(fuzz_partition_function)
+
+        target_compile_options(fuzz_partition_function PRIVATE -O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined)
+        target_link_options(fuzz_partition_function PRIVATE -fsanitize=fuzzer,address,undefined)
+
+        add_custom_target(kstar_fuzz_partition_function_corpus_dir
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/partition_function"
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Create the corpus directory for the PartitionFunction fuzzer"
+            VERBATIM
+        )
+
+        if (TARGET gen_fuzz_seeds_partition_function)
+            add_custom_target(kstar_fuzz_seed_partition_function
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/partition_function"
+                COMMAND ${CMAKE_COMMAND} -E echo "Seeding corpus (if needed)..."
+                COMMAND $<TARGET_FILE:gen_fuzz_seeds_partition_function> "${CMAKE_BINARY_DIR}/fuzz-corpus/partition_function"
+                DEPENDS gen_fuzz_seeds_partition_function
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                COMMENT "Generate a small seed corpus for the PartitionFunction fuzzer"
+                VERBATIM
+            )
+        else()
+            add_custom_target(kstar_fuzz_seed_partition_function
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/partition_function"
+                COMMAND ${CMAKE_COMMAND} -E echo "Seed generator not built; corpus directory created but left empty"
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                COMMENT "Create the corpus directory for the PartitionFunction fuzzer"
+                VERBATIM
+            )
+        endif()
+
+        add_custom_target(kstar_fuzz_partition_function
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-artifacts/partition_function"
+            COMMAND $<TARGET_FILE:fuzz_partition_function>
+                -max_total_time=30
+                -max_len=2048
+                -artifact_prefix=${CMAKE_BINARY_DIR}/fuzz-artifacts/partition_function/
+                ${CMAKE_BINARY_DIR}/fuzz-corpus/partition_function
+            DEPENDS fuzz_partition_function
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run libFuzzer for PartitionFunction for 30s; artifacts in ${CMAKE_BINARY_DIR}/fuzz-artifacts/partition_function/"
+            VERBATIM
+        )
+        add_dependencies(kstar_fuzz_partition_function kstar_fuzz_partition_function_corpus_dir)
+        add_dependencies(kstar_fuzz_partition_function kstar_fuzz_seed_partition_function)
     endif()
 endif()
 
@@ -952,7 +1063,9 @@ if (BUILD_TESTING)
     # Optional: benchmark smoke tests (very short runs) so `ctest -R kstar\\.bench_` works.
     if (KSTAR_ENABLE_BENCHMARKS AND TARGET kstar_astar_search_bench)
         add_test(NAME kstar.bench_astar_smoke COMMAND $<TARGET_FILE:kstar_astar_search_bench>
-            --benchmark_filter=BM_AStar.*
+            # Smoke should not depend on external env vars (e.g., case:5 "External").
+            # Avoid parentheses here: CMake/CTest can split args in surprising ways.
+            --benchmark_filter=^BM_AStar.*_PopExpand/case:[0-4]/.*
             --benchmark_min_time=0.01s
         )
         set_tests_properties(kstar.bench_astar_smoke PROPERTIES LABELS "kstar;benchmark;synthesized;smoke;astar")
@@ -1187,6 +1300,25 @@ if (BUILD_TESTING AND EXISTS ${CONF_SEARCH_ASTAR_CORPUS_RUNNER_FILE})
 
     add_test(NAME kstar.conf_search_astar_corpus_runner COMMAND $<TARGET_FILE:conf_search_astar_corpus_runner>)
     set_tests_properties(kstar.conf_search_astar_corpus_runner PROPERTIES LABELS "kstar;coverage;fuzz_corpus")
+endif()
+
+set(PARTITION_FUNCTION_CORPUS_RUNNER_FILE ${REPO_ROOT}/src/test/cpp/kstar/partition_function_corpus_runner.cpp)
+if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_CORPUS_RUNNER_FILE})
+    add_executable(partition_function_corpus_runner ${PARTITION_FUNCTION_CORPUS_RUNNER_FILE})
+    target_include_directories(partition_function_corpus_runner PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(partition_function_corpus_runner PRIVATE osprey_kstar_parallel)
+    target_compile_definitions(partition_function_corpus_runner PRIVATE OSPREY_REPO_ROOT="${REPO_ROOT}")
+    kstar_apply_default_warnings(partition_function_corpus_runner)
+    kstar_apply_perf_opts(partition_function_corpus_runner)
+    kstar_apply_coverage(partition_function_corpus_runner)
+    kstar_apply_llvm_coverage(partition_function_corpus_runner)
+
+    add_test(NAME kstar.partition_function_corpus_runner COMMAND $<TARGET_FILE:partition_function_corpus_runner>)
+    set_tests_properties(kstar.partition_function_corpus_runner PROPERTIES LABELS "kstar;coverage;fuzz_corpus")
 endif()
 
 # EnergyMatrixLoader regression tests (promoted fuzz artifacts, repo-local)
