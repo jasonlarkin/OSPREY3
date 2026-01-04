@@ -165,14 +165,33 @@ static void run_one_bytes(const std::uint8_t* data, std::size_t size) {
     // Always run once for coverage contribution.
     (void)run_collect_variant(primary_variant, max_steps);
 
-    // Determinism check: don't fail coverage runs; just treat as "bad input".
+    const bool strict = (std::getenv("KSTAR_CORPUS_RUNNER_STRICT") != nullptr);
+
+    auto fail = [&](const char* why) {
+        if (strict) {
+            std::cerr << "[conf_search_astar_corpus_runner] FAIL: " << why << "\n";
+            std::exit(1);
+        }
+        // Non-strict: treat as "bad input" and skip (coverage should still proceed).
+    };
+
+    // Determinism check: repeatability for a fixed input and variant.
     const std::uint64_t det_steps = (max_steps < 16) ? max_steps : 16;
     const auto a = run_collect_variant(primary_variant, det_steps);
     const auto b = run_collect_variant(primary_variant, det_steps);
-    if (a.size() != b.size()) return;
+    if (a.size() != b.size()) {
+        fail("determinism: size mismatch");
+        return;
+    }
     for (std::size_t i = 0; i < a.size(); ++i) {
-        if (a[i].assignments != b[i].assignments) return;
-        if (std::fabs(a[i].score - b[i].score) > 1e-12) return;
+        if (a[i].assignments != b[i].assignments) {
+            fail("determinism: assignments mismatch");
+            return;
+        }
+        if (std::fabs(a[i].score - b[i].score) > 1e-12) {
+            fail("determinism: score mismatch");
+            return;
+        }
     }
 
     if (cross_check && total_confs <= 4096) {
@@ -189,9 +208,15 @@ static void run_one_bytes(const std::uint8_t* data, std::size_t size) {
         std::sort(sa.begin(), sa.end());
         std::sort(sb.begin(), sb.end());
 
-        if (sa.size() != sb.size()) return;
+        if (sa.size() != sb.size()) {
+            fail("cross_check: size mismatch");
+            return;
+        }
         for (std::size_t i = 0; i < sa.size(); ++i) {
-            if (std::fabs(sa[i] - sb[i]) > 1e-9) return;
+            if (std::fabs(sa[i] - sb[i]) > 1e-9) {
+                fail("cross_check: score mismatch");
+                return;
+            }
         }
     }
 }

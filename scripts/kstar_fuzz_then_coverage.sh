@@ -9,7 +9,9 @@ set -euo pipefail
 # Outputs:
 #   - fuzz corpus:    build/cpp/kstar-fuzz/fuzz-corpus/<harness>/
 #   - fuzz artifacts: build/cpp/kstar-fuzz/fuzz-artifacts/<harness>/
-#   - prod coverage:  build/cpp/kstar-coverage/coverage/kstar-prod/index.html
+#   - prod coverage:  build/cpp/kstar-coverage/coverage/kstar-prod-baseline/index.html
+#                    build/cpp/kstar-coverage/coverage/kstar-prod-fuzz/index.html
+#   - delta report:   build/cpp/kstar-coverage/coverage/prod_coverage_delta.summary.md
 #
 # Optional harness selection:
 #   ./scripts/kstar_fuzz_then_coverage.sh [FUZZ_SECONDS] [emat|astar|both]
@@ -35,6 +37,10 @@ cmake -S "${REPO_ROOT}/src/main/cpp/kstar" -B "${FUZZ_BUILD_DIR}" \
 
 echo "[kstar_fuzz_then_coverage] build fuzz"
 cmake --build "${FUZZ_BUILD_DIR}" -j
+
+echo "[kstar_fuzz_then_coverage] seed fuzz corpora (cheap, deterministic)"
+cmake --build "${FUZZ_BUILD_DIR}" -j --target kstar_fuzz_seed_energy_matrix_loader || true
+cmake --build "${FUZZ_BUILD_DIR}" -j --target kstar_fuzz_seed_conf_search_astar || true
 
 run_fuzzer() {
   local name="$1"
@@ -77,7 +83,9 @@ cmake -S "${REPO_ROOT}/src/main/cpp/kstar" -B "${COV_BUILD_DIR}" \
 
 echo "[kstar_fuzz_then_coverage] build + run prod-only coverage"
 cmake --build "${COV_BUILD_DIR}" -j
-cmake --build "${COV_BUILD_DIR}" --target kstar_coverage_prod
+cmake --build "${COV_BUILD_DIR}" --target kstar_coverage_prod_compare_fuzz
 
-echo "[kstar_fuzz_then_coverage] prod report: ${COV_BUILD_DIR}/coverage/kstar-prod/index.html"
+echo "[kstar_fuzz_then_coverage] prod report (baseline): ${COV_BUILD_DIR}/coverage/kstar-prod-baseline/index.html"
+echo "[kstar_fuzz_then_coverage] prod report (with fuzz corpus replay): ${COV_BUILD_DIR}/coverage/kstar-prod-fuzz/index.html"
+echo "[kstar_fuzz_then_coverage] prod delta summary: ${COV_BUILD_DIR}/coverage/prod_coverage_delta.summary.md"
 

@@ -5,6 +5,7 @@
 
 #include "conf_search_astar.hpp"
 #include "astar_search_fast.hpp"
+#include "astar_node_fast.hpp"
 #include "energy_matrix.hpp"
 
 #include <algorithm>
@@ -47,26 +48,25 @@ static void probe_astar_search_fast_ranges(
     const int32_t num_positions = static_cast<int32_t>(num_confs_per_pos.size());
     if (num_positions <= 1) return;
 
-    // Choose a valid (pos1, rc1) so we can safely probe sumUndefinedRange's boundary logic.
-    const int32_t pos1 = 1 + static_cast<int32_t>(c.u8() % static_cast<std::uint8_t>(num_positions - 1));
-    const int32_t n1 = num_confs_per_pos[static_cast<std::size_t>(pos1)];
-    if (n1 <= 0) return;
-    const int32_t rc1 = static_cast<int32_t>(c.u8() % static_cast<std::uint8_t>(n1));
+    // Previously this harness directly called sumUndefinedRange(...), but that's intentionally private.
+    // Instead, drive the same heuristic code paths via the public API: computeHScore/expandInto.
+    const int32_t k = static_cast<int32_t>(c.u8() % static_cast<std::uint8_t>(num_positions)); // 0..num_positions-1
+    auto node = osprey::kstar::AStarNodeFast<double>::root(num_positions);
+    for (int32_t pos = 0; pos < k; ++pos) {
+        const int32_t nrc = num_confs_per_pos[static_cast<std::size_t>(pos)];
+        if (nrc <= 0) break;
+        const int16_t rc = static_cast<int16_t>(c.u8() % static_cast<std::uint8_t>(nrc));
+        node = node.assign(pos, rc);
+    }
+    node.g_score = astar_fast.computeGScore(node);
+    node.h_score = astar_fast.computeHScore(node);
+    node.f_score = node.g_score + node.h_score;
 
-    volatile double sink = 0.0;
-    // start_pos2 < 0; end_pos2_exclusive > pos1 (clamps to pos1)
-    sink += astar_fast.sumUndefinedRange(pos1, rc1, -3, pos1 + 5);
-    // end_pos2_exclusive > num_positions_ (clamps to num_positions_ then pos1)
-    sink += astar_fast.sumUndefinedRange(pos1, rc1, 0, num_positions + 7);
-    // end_pos2_exclusive < start_pos2 (early return)
-    sink += astar_fast.sumUndefinedRange(pos1, rc1, 4, 2);
-    // start_pos2 >= end_pos2_exclusive (early return)
-    sink += astar_fast.sumUndefinedRange(pos1, rc1, pos1, pos1);
-    // end_pos2_exclusive < 0 after clamp / or start beyond end (early return path)
-    sink += astar_fast.sumUndefinedRange(pos1, rc1, -1, -1);
+    std::vector<osprey::kstar::AStarNodeFast<double>> out;
+    astar_fast.expandInto(node, out);
 
-    // Prevent optimizing away the probes.
-    if (sink == 1234567.0) {
+    // Prevent optimizing away.
+    if (!out.empty() && out.front().getScore() == 1234567.0) {
         __builtin_trap();
     }
 }

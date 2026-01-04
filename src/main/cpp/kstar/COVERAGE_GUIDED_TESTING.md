@@ -80,6 +80,7 @@ Initial targets in this repo (based on current C++ surface area):
 - `energy_matrix_loader.cpp`: fuzz input formats / parsing / error handling.
 - `astar_search.cpp`: fuzz small synthetic matrices + search parameters.
 - `partition_function.cpp`: fuzz small conf spaces / edge parameters.
+- `conf_search_astar.cpp`: fuzz ConfSearch over tiny synthetic matrices + ordering/pruning edge cases.
 
 ### Repo support: EnergyMatrixLoader fuzz target
 
@@ -146,6 +147,46 @@ You can replay a single artifact by running the fuzzer binary directly:
 ```bash
 ./build/cpp/kstar-fuzz/fuzz_energy_matrix_loader ./build/cpp/kstar-fuzz/fuzz-artifacts/energy_matrix_loader/<artifact_file>
 ```
+
+## Repo support: ConfSearchAStar fuzz target
+
+- **Target**: `fuzz_conf_search_astar`
+- **Convenience runner**: `kstar_fuzz_conf_search_astar`
+- **Seed generator (recommended)**: `kstar_fuzz_seed_conf_search_astar`
+
+This harness synthesizes a tiny `EnergyMatrix` from bytes and runs `makeAStarConfSearch(...)` in either baseline or fast mode.
+
+### Harness input format (byte-level)
+
+- **byte0**: selects `num_positions` as `2 + (byte0 % 9)` → 2..10
+- **byte1**: config bits:
+  - bit0: prefer fast variant for the primary run
+  - bit1: cross-check baseline vs fast (order-insensitive compare of first-N scores)
+  - bit2: extreme energies (larger magnitude i8 scaling)
+  - bit3: tie-heavy energies (many equal values)
+- **next num_positions bytes**: `num_confs_per_pos[pos] = 1 + (b % 8)` → 1..8
+- **remaining bytes**: signed i8 energies used to populate const/one-body/pairwise terms (missing bytes read as 0)
+
+The harness enforces:
+- bounded sizes (caps on total conformations and pairwise terms),
+- **determinism** (same input run twice must produce identical first-N results),
+- optional **baseline vs fast** differential checking (first-N score multiset).
+
+### Corpus replay for coverage
+
+Coverage builds include `kstar.conf_search_astar_corpus_runner` (label `fuzz_corpus`), which replays `build/cpp/kstar-fuzz/fuzz-corpus/conf_search_astar/` during `kstar_coverage_prod_compare_fuzz`.
+
+In the prod-compare target, corpus replay is run with:
+- `KSTAR_CORPUS_RUNNER_STRICT=1` (nondeterminism / cross-check mismatches fail fast and print a reason).
+
+### Repro / minimize / promote workflow
+
+- Repro a crash/artifact:
+  - `./scripts/kstar_fuzz_repro_conf_search_astar.sh <artifact_file>`
+- Minimize a crash/artifact:
+  - `./scripts/kstar_fuzz_minimize_conf_search_astar.sh <artifact_file> <out_file>`
+- Promote into build-local regression inputs (not committed by default):
+  - `./scripts/kstar_promote_fuzz_artifact_conf_search_astar.sh <artifact_or_corpus_file> [name]`
 
 ## Microbenchmarks (SYNTHESIZED tooling)
 

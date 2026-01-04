@@ -147,6 +147,10 @@ This currently includes (when built):
 - `kstar.energy_matrix_loader_corpus_runner`
 - `kstar.conf_search_astar_corpus_runner`
 
+Notes:
+
+- The “with fuzz corpus replay” phase runs with `KSTAR_CORPUS_RUNNER_STRICT=1` so corpus-runner determinism / differential-check failures surface as actionable test failures (instead of silently skipping inputs).
+
 To see *which files* changed between baseline and fuzz, run:
 
 ```bash
