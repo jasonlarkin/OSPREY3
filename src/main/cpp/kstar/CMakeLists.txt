@@ -243,6 +243,13 @@ if (KSTAR_ENABLE_FUZZING)
     # Fuzz target: ConfSearchAStar (baseline/fast) on tiny synthetic EnergyMatrix instances.
     set(FUZZ_CONF_SEARCH_ASTAR_FILE ${REPO_ROOT}/src/test/cpp/kstar/fuzz_conf_search_astar.cpp)
     if (EXISTS ${FUZZ_CONF_SEARCH_ASTAR_FILE})
+        set(FUZZ_CONF_SEARCH_ASTAR_SEEDGEN_FILE ${REPO_ROOT}/src/test/cpp/kstar/gen_fuzz_seeds_conf_search_astar.cpp)
+        if (EXISTS ${FUZZ_CONF_SEARCH_ASTAR_SEEDGEN_FILE})
+            add_executable(gen_fuzz_seeds_conf_search_astar ${FUZZ_CONF_SEARCH_ASTAR_SEEDGEN_FILE})
+            # No libFuzzer linkage here; this is a simple utility binary.
+            target_compile_options(gen_fuzz_seeds_conf_search_astar PRIVATE -O2)
+        endif()
+
         add_executable(fuzz_conf_search_astar ${FUZZ_CONF_SEARCH_ASTAR_FILE})
         target_include_directories(fuzz_conf_search_astar PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -263,11 +270,31 @@ if (KSTAR_ENABLE_FUZZING)
             VERBATIM
         )
 
+        if (TARGET gen_fuzz_seeds_conf_search_astar)
+            add_custom_target(kstar_fuzz_seed_conf_search_astar
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar"
+                COMMAND ${CMAKE_COMMAND} -E echo "Seeding corpus (if needed)..."
+                COMMAND $<TARGET_FILE:gen_fuzz_seeds_conf_search_astar> "${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar"
+                DEPENDS gen_fuzz_seeds_conf_search_astar
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                COMMENT "Generate a small seed corpus for the ConfSearchAStar fuzzer"
+                VERBATIM
+            )
+        else()
+            add_custom_target(kstar_fuzz_seed_conf_search_astar
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar"
+                COMMAND ${CMAKE_COMMAND} -E echo "Seed generator not built; corpus directory created but left empty"
+                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+                COMMENT "Create the corpus directory for the ConfSearchAStar fuzzer"
+                VERBATIM
+            )
+        endif()
+
         add_custom_target(kstar_fuzz_conf_search_astar
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-artifacts/conf_search_astar"
             COMMAND $<TARGET_FILE:fuzz_conf_search_astar>
                 -max_total_time=30
-                -max_len=65536
+                -max_len=2048
                 -artifact_prefix=${CMAKE_BINARY_DIR}/fuzz-artifacts/conf_search_astar/
                 ${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar
             DEPENDS fuzz_conf_search_astar
@@ -276,6 +303,7 @@ if (KSTAR_ENABLE_FUZZING)
             VERBATIM
         )
         add_dependencies(kstar_fuzz_conf_search_astar kstar_fuzz_conf_search_astar_corpus_dir)
+        add_dependencies(kstar_fuzz_conf_search_astar kstar_fuzz_seed_conf_search_astar)
     endif()
 endif()
 
@@ -511,6 +539,30 @@ if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_TUTORIAL_GTEST_FILE})
         TEST_LIST partition_function_tutorial_gtest_tests
     )
     set_tests_properties(${partition_function_tutorial_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;tutorial;partition_function"
+    )
+endif()
+
+# Partition function tutorial tests: GradientDescent invariants (GoogleTest)
+set(PARTITION_FUNCTION_GD_TUTORIAL_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_partition_function_gradient_descent_tutorial_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_GD_TUTORIAL_GTEST_FILE})
+    add_executable(partition_function_gd_tutorial_gtest ${PARTITION_FUNCTION_GD_TUTORIAL_GTEST_FILE})
+    target_include_directories(partition_function_gd_tutorial_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+    )
+    target_link_libraries(partition_function_gd_tutorial_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(partition_function_gd_tutorial_gtest)
+    kstar_apply_perf_opts(partition_function_gd_tutorial_gtest)
+    kstar_apply_coverage(partition_function_gd_tutorial_gtest)
+    kstar_apply_llvm_coverage(partition_function_gd_tutorial_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(partition_function_gd_tutorial_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST partition_function_gd_tutorial_gtest_tests
+    )
+    set_tests_properties(${partition_function_gd_tutorial_gtest_tests} PROPERTIES
         LABELS "kstar;gtest;tutorial;partition_function"
     )
 endif()
@@ -1338,7 +1390,7 @@ if (BUILD_TESTING AND KSTAR_ENABLE_COVERAGE)
             COMMAND ${CMAKE_COMMAND} -E echo "Resetting coverage counters..."
             COMMAND $<$<BOOL:${FIND_EXEC}>:${FIND_EXEC}> . -name "*.gcda" -delete
             COMMAND ${LCOV_EXEC} --directory . --zerocounters
-            COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+            COMMAND ${CMAKE_COMMAND} -E env KSTAR_CORPUS_RUNNER_STRICT=1 ${CMAKE_CTEST_COMMAND} --output-on-failure
             COMMAND ${LCOV_EXEC} --capture --directory . --output-file coverage.raw.fuzz.info
                 --base-directory "${REPO_ROOT}"
                 --rc lcov_branch_coverage=1
