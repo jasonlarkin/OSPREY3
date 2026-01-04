@@ -239,6 +239,44 @@ if (KSTAR_ENABLE_FUZZING)
             VERBATIM
         )
     endif()
+
+    # Fuzz target: ConfSearchAStar (baseline/fast) on tiny synthetic EnergyMatrix instances.
+    set(FUZZ_CONF_SEARCH_ASTAR_FILE ${REPO_ROOT}/src/test/cpp/kstar/fuzz_conf_search_astar.cpp)
+    if (EXISTS ${FUZZ_CONF_SEARCH_ASTAR_FILE})
+        add_executable(fuzz_conf_search_astar ${FUZZ_CONF_SEARCH_ASTAR_FILE})
+        target_include_directories(fuzz_conf_search_astar PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${REPO_ROOT}/src/main/cpp/kstar
+            ${REPO_ROOT}/src/test/cpp/kstar
+        )
+        target_link_libraries(fuzz_conf_search_astar PRIVATE osprey_kstar_parallel)
+        kstar_apply_default_warnings(fuzz_conf_search_astar)
+        kstar_apply_perf_opts(fuzz_conf_search_astar)
+
+        target_compile_options(fuzz_conf_search_astar PRIVATE -O1 -g -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined)
+        target_link_options(fuzz_conf_search_astar PRIVATE -fsanitize=fuzzer,address,undefined)
+
+        add_custom_target(kstar_fuzz_conf_search_astar_corpus_dir
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar"
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Create the corpus directory for the ConfSearchAStar fuzzer"
+            VERBATIM
+        )
+
+        add_custom_target(kstar_fuzz_conf_search_astar
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/fuzz-artifacts/conf_search_astar"
+            COMMAND $<TARGET_FILE:fuzz_conf_search_astar>
+                -max_total_time=30
+                -max_len=65536
+                -artifact_prefix=${CMAKE_BINARY_DIR}/fuzz-artifacts/conf_search_astar/
+                ${CMAKE_BINARY_DIR}/fuzz-corpus/conf_search_astar
+            DEPENDS fuzz_conf_search_astar
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run libFuzzer for ConfSearchAStar for 30s; artifacts in ${CMAKE_BINARY_DIR}/fuzz-artifacts/conf_search_astar/"
+            VERBATIM
+        )
+        add_dependencies(kstar_fuzz_conf_search_astar kstar_fuzz_conf_search_astar_corpus_dir)
+    endif()
 endif()
 
 ## Test files are at src/test/cpp/kstar/*.cpp relative to repo root
@@ -1032,6 +1070,25 @@ if (BUILD_TESTING AND EXISTS ${ENERGY_MATRIX_LOADER_CORPUS_RUNNER_FILE})
     set_tests_properties(kstar.energy_matrix_loader_corpus_runner PROPERTIES LABELS "kstar;coverage;fuzz_corpus")
 endif()
 
+set(CONF_SEARCH_ASTAR_CORPUS_RUNNER_FILE ${REPO_ROOT}/src/test/cpp/kstar/conf_search_astar_corpus_runner.cpp)
+if (BUILD_TESTING AND EXISTS ${CONF_SEARCH_ASTAR_CORPUS_RUNNER_FILE})
+    add_executable(conf_search_astar_corpus_runner ${CONF_SEARCH_ASTAR_CORPUS_RUNNER_FILE})
+    target_include_directories(conf_search_astar_corpus_runner PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(conf_search_astar_corpus_runner PRIVATE osprey_kstar_parallel)
+    target_compile_definitions(conf_search_astar_corpus_runner PRIVATE OSPREY_REPO_ROOT="${REPO_ROOT}")
+    kstar_apply_default_warnings(conf_search_astar_corpus_runner)
+    kstar_apply_perf_opts(conf_search_astar_corpus_runner)
+    kstar_apply_coverage(conf_search_astar_corpus_runner)
+    kstar_apply_llvm_coverage(conf_search_astar_corpus_runner)
+
+    add_test(NAME kstar.conf_search_astar_corpus_runner COMMAND $<TARGET_FILE:conf_search_astar_corpus_runner>)
+    set_tests_properties(kstar.conf_search_astar_corpus_runner PROPERTIES LABELS "kstar;coverage;fuzz_corpus")
+endif()
+
 # EnergyMatrixLoader regression tests (promoted fuzz artifacts, repo-local)
 set(ENERGY_MATRIX_LOADER_REGRESSION_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_energy_matrix_loader_regression_gtest.cpp)
 if (BUILD_TESTING AND EXISTS ${ENERGY_MATRIX_LOADER_REGRESSION_GTEST_FILE})
@@ -1086,6 +1143,7 @@ if (BUILD_TESTING)
         conf_search_cache_gtest
         confspace_test
         energy_matrix_loader_corpus_runner
+        conf_search_astar_corpus_runner
         energy_matrix_loader_regression_gtest
     )
         if (TARGET ${t})
@@ -1254,6 +1312,7 @@ if (BUILD_TESTING AND KSTAR_ENABLE_COVERAGE)
             COMMAND ${CMAKE_COMMAND} -E echo "Top per-file deltas (first 15 lines):"
             COMMAND /bin/bash -lc
                 "head -n 16 ${CMAKE_BINARY_DIR}/coverage/prod_coverage_delta.tsv || true"
+            COMMAND ${CMAKE_COMMAND} -E echo "Summary: ${CMAKE_BINARY_DIR}/coverage/prod_coverage_delta.summary.md"
             COMMAND ${CMAKE_COMMAND} -E echo "Top newly covered branches/lines/functions are also written under ${CMAKE_BINARY_DIR}/coverage/:"
             COMMAND ${CMAKE_COMMAND} -E echo "  - prod_coverage_delta.new_branches.tsv"
             COMMAND ${CMAKE_COMMAND} -E echo "  - prod_coverage_delta.new_lines.tsv"

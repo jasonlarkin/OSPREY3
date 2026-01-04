@@ -1,6 +1,10 @@
 # Code Coverage for the C++ K* Port
 
-This doc is written for a parallel Cursor thread to implement/maintain coverage reporting while porting OSPREY tests.
+This doc is written to implement/maintain **coverage reporting** while porting OSPREY tests.
+
+Companion doc (how to *generate new inputs/tests* that buy coverage):
+
+- `COVERAGE_GUIDED_TESTING.md`
 
 ## Goals
 
@@ -89,7 +93,7 @@ sudo apt-get install -y lcov
 
 ### 2) Configure a dedicated coverage build directory
 
-We keep a separate build dir so normal dev builds stay fast and optimized.
+Keep a separate build dir so normal dev builds stay fast and optimized.
 
 ```bash
 cd $REPO_ROOT
@@ -122,7 +126,7 @@ Outputs:
 
 ### Optional: A/B compare prod-only coverage (baseline vs fuzz corpus replay)
 
-If you are using libFuzzer and the corpus replay test (`kstar.energy_matrix_loader_corpus_runner`), you can generate two prod-only reports:
+If you are using libFuzzer and the corpus replay tests (label `fuzz_corpus`), you can generate two prod-only reports:
 
 - baseline (excludes label `fuzz_corpus`)
 - with fuzz corpus replay (includes label `fuzz_corpus`)
@@ -137,6 +141,11 @@ Outputs:
 
 - baseline: `${repo}/build/cpp/kstar-coverage/coverage/kstar-prod-baseline/index.html`
 - with fuzz: `${repo}/build/cpp/kstar-coverage/coverage/kstar-prod-fuzz/index.html`
+
+This currently includes (when built):
+
+- `kstar.energy_matrix_loader_corpus_runner`
+- `kstar.conf_search_astar_corpus_runner`
 
 To see *which files* changed between baseline and fuzz, run:
 
@@ -156,6 +165,21 @@ Interpreting the diff output:
 - **`d_funcs_hit`**: how many additional functions were hit
 - **`d_branches_hit`**: how many additional branches were taken
 - Most files will have 0 deltas; the value is in quickly pinpointing exactly *where* fuzzing is buying coverage.
+
+Notes on interpretation:
+
+- **`d_funcs_hit` can be 0 while fuzzing is still valuable**: it may be exercising *new branches/lines inside functions that were already entered* by baseline tests.
+- A small delta (single-digit lines, tens of branches) is expected once baseline coverage is already high; interpret it as “remaining gaps are narrow and input-specific”.
+
+The delta script also writes “hotspot” lists (baseline=0, fuzz>0):
+
+- **Newly covered branches**: `${repo}/build/cpp/kstar-coverage/coverage/prod_coverage_delta.new_branches.tsv`
+- **Newly covered lines**: `${repo}/build/cpp/kstar-coverage/coverage/prod_coverage_delta.new_lines.tsv`
+- **Newly covered functions**: `${repo}/build/cpp/kstar-coverage/coverage/prod_coverage_delta.new_functions.tsv`
+
+For quick review, it also writes a single markdown summary:
+
+- `${repo}/build/cpp/kstar-coverage/coverage/prod_coverage_delta.summary.md`
 
 ### Promoting fuzz inputs into stable regressions (recommended)
 

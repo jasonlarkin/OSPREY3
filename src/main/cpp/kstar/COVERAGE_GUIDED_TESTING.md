@@ -4,7 +4,7 @@ This doc complements `CODE_COVERAGE.md`. It focuses on **how to use coverage res
 
 ## Key idea: lcov is a *measurement*, not usually the *feedback loop*
 
-Tools that “target uncovered paths” typically work in one of these ways:
+Tools that target uncovered paths typically work in one of these ways:
 
 - **Coverage-guided fuzzing**: repeatedly mutates inputs and keeps the ones that increase edge coverage.
 - **Symbolic / concolic execution**: solves path constraints to force execution down unexplored branches.
@@ -57,25 +57,25 @@ These complement libFuzzer. Most relevant for **numeric/correctness contracts** 
   - Finds defect patterns without executing code (misuse of `[[nodiscard]]`, narrowing, lifetime issues, suspicious comparisons).
   - Complements runtime testing, especially in template-heavy headers.
 
-## Recommended starting point (highest ROI): fuzzing with libFuzzer
+## Starting point: fuzzing with libFuzzer
 
-### When it works best
+### Works best
 
 - Parsing/decoding, input validation, boundary conditions, “many small branches”.
 - Deterministic code with minimal global state.
 
-### Why it’s pragmatic
+### Why
 
 - It optimizes for “new coverage” by design (no need to feed it `lcov`).
 - It finds crashers, sanitizer issues, and weird corner cases quickly.
 
-### What you need to add (high level)
+### Need to add (high level)
 
 - A **fuzz harness** that calls into a “target” API with a byte buffer.
 - A **seed corpus** of a few valid-ish inputs (even tiny ones).
 - Build with Clang + sanitizers + libFuzzer flags.
 
-Suggested initial targets in this repo (based on current C++ surface area):
+Initial targets in this repo (based on current C++ surface area):
 
 - `energy_matrix_loader.cpp`: fuzz input formats / parsing / error handling.
 - `astar_search.cpp`: fuzz small synthetic matrices + search parameters.
@@ -234,7 +234,7 @@ Whether the input comes from fuzzing or symbolic execution:
 - **Prefer invariants over exact floats** when applicable (tolerances, monotonicity, bounds).
 - Add a label like `coverage_regression` so you can run them in CI separately.
 
-## Suggested “coverage gap → tool” decision table
+## Coverage gap → tool decision table
 
 - **Parsing / file formats / input validation** → libFuzzer/AFL++ first
 - **Branchy logic with tight constraints** → KLEE (symbolic) / hybrid
@@ -284,12 +284,69 @@ Promote to regression:
 
 Coverage reports produced by `lcov` are driven by **what executes during `ctest`**, not by the fuzz build itself.
 
-This repo integrates fuzzing into coverage measurement by replaying the fuzz corpus during `ctest`:
+In this repo, fuzzing contributes to coverage by replaying the fuzz corpus during `ctest` via dedicated **corpus runner** tests (label `fuzz_corpus`).
+
+For the exact report-generation targets (prod-only HTML, and baseline-vs-fuzz A/B compare + delta TSV/MD outputs), see:
+
+- `CODE_COVERAGE.md` → **Optional: A/B compare prod-only coverage (baseline vs fuzz corpus replay)**
+
+### Workflow diagram (fuzz → corpus → coverage A/B → delta)
+
+```mermaid
+flowchart LR
+  Fuzz["Run libFuzzer (clang)\n(fuzz_* targets)"] --> Corpus["Corpus\nbuild/cpp/kstar-fuzz/fuzz-corpus/<harness>/"]
+  Fuzz --> Art["Crash artifacts\nbuild/cpp/kstar-fuzz/fuzz-artifacts/<harness>/"]
+
+  Corpus --> Replay["Replay corpus under ctest\n(label: fuzz_corpus)"]
+  Art --> Promote["Repro / minimize / promote\n(optional)"]
+  Promote --> Reg["GTest regression\n(optional)"]
+
+  Replay --> AB["kstar_coverage_prod_compare_fuzz\n(baseline vs fuzz)"]
+  Reg --> AB
+  AB --> Delta["prod_coverage_delta.*\n(tsv/md/html)"]
+```
 
 - Test binary: `energy_matrix_loader_corpus_runner`
 - CTest name: `kstar.energy_matrix_loader_corpus_runner`
 - Default corpus location (zero-config): `build/cpp/kstar-fuzz/fuzz-corpus/energy_matrix_loader`
 - Override with env var: `KSTAR_FUZZ_CORPUS_DIR=/path/to/corpus`
+
+Second harness (graph/tree search):
+
+- Fuzzer: `fuzz_conf_search_astar` (libFuzzer target)
+- Runner binary: `conf_search_astar_corpus_runner`
+- CTest name: `kstar.conf_search_astar_corpus_runner`
+- Default corpus location: `build/cpp/kstar-fuzz/fuzz-corpus/conf_search_astar`
+- Override with env var: `KSTAR_FUZZ_CORPUS_DIR_CONF_SEARCH_ASTAR=/path/to/corpus`
+
+Notes on the ConfSearchAStar fuzz input format:
+
+- The harness consumes a small byte stream and builds a synthetic `EnergyMatrix<double>` in-memory.
+- It intentionally supports a few “modes” (via a config byte) to increase search-shape diversity while staying bounded:
+  - **prefer fast vs baseline** (drives `AStarVariant` dispatch)
+  - **cross-check mode**: runs both baseline+fast and compares the *multiset* of the first-N scores (order-insensitive)
+  - **extreme energies**: larger magnitude energies
+  - **tie-heavy energies**: many equal energies to stress ordering/tie behavior
+- The corpus runner also triggers key fast-path execution through the *public* API (`computeHScore`/`expandInto`) so fuzz corpus replay buys real prod coverage (not just the factory dispatch branch).
+
+Convenience scripts (recommended):
+
+```bash
+# repro (consistent ASAN/UBSAN settings)
+./scripts/kstar_fuzz_repro_conf_search_astar.sh build/cpp/kstar-fuzz/fuzz-artifacts/conf_search_astar/<artifact_file>
+
+# minimize a crashing input to a smaller reproducer
+./scripts/kstar_fuzz_minimize_conf_search_astar.sh \
+  build/cpp/kstar-fuzz/fuzz-artifacts/conf_search_astar/<artifact_file> \
+  /tmp/conf_search_astar.min.bin
+
+# promote into a build-local regression/corpus input directory
+./scripts/kstar_promote_fuzz_artifact_conf_search_astar.sh build/cpp/kstar-fuzz/fuzz-artifacts/conf_search_astar/<artifact_file>
+
+# replay promoted inputs via the corpus runner
+KSTAR_FUZZ_CORPUS_DIR_CONF_SEARCH_ASTAR=build/cpp/kstar/test_data/fuzz/conf_search_astar \
+  ctest --test-dir build/cpp/kstar-coverage -R kstar.conf_search_astar_corpus_runner -V
+```
 
 Workflow:
 
@@ -310,12 +367,35 @@ cmake --build build/cpp/kstar-coverage --target kstar_coverage
 Use:
 
 ```bash
-./scripts/kstar_fuzz_then_coverage.sh 30
+./scripts/kstar_fuzz_then_coverage.sh 30 emat   # energy_matrix_loader
+./scripts/kstar_fuzz_then_coverage.sh 30 astar  # conf_search_astar
+./scripts/kstar_fuzz_then_coverage.sh 30 both   # run both fuzzers, then coverage
 ```
 
 Plateau rule (when to consider adding more tools/harnesses):
 
 - If repeated runs stop increasing `kstar-prod` coverage meaningfully, remaining gaps are likely “needs real scenario setup” or “tight constraints”.
 - That is the point to consider targeted harnesses, or symbolic/concolic tools (KLEE track).
+
+## When to add a second fuzz harness vs port VERBATIM tests
+
+Decision rule:
+
+- If the fuzz ROI report shows deltas are confined to **one file** (example: `energy_matrix_loader.cpp`) and **function hits stop increasing**, the current harness is saturating its reachable surface area.
+- The next coverage step is either:
+  - **Second harness** targeting a different subsystem reachable from in-memory synthetic inputs, or
+  - **VERBATIM tests** to activate production paths that require realistic scenario wiring (ConfSpace pipeline, end-to-end workflow).
+
+Good candidates for a second harness (branchy “graph/tree” logic):
+
+- **A* / conf search**: `astar_search_fast.cpp`, `conf_search_astar.cpp`
+  - Targets: expansion ordering, bounds pruning, edge-case parameterization.
+  - Approach: generate small synthetic `EnergyMatrix` instances from bytes (constrain sizes), fuzz options (max pops, epsilon, variant), and assert invariants (monotonic scores, no crashes, deterministic behavior under fixed seeds).
+- **Partition function (A*)**: `partition_function.cpp`
+  - Approach: fuzz small conf spaces and run only the fast “tiny-space” modes (bound checks, delta math), with invariants rather than exact floats.
+
+Avoid:
+
+- Fuzzing the raw hot loop without structure. The harness should fuzz *inputs into* the algorithm and enforce invariants.
 
 
