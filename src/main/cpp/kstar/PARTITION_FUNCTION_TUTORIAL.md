@@ -20,6 +20,8 @@ Where:
 
 Test strategy:
 - Use `epsilon = 0` and `allow_exact_enumeration = false` on a small space to force full enumeration through the A* path, then validate `num_confs == total_confs` and `delta == 0`.
+- Add a tutorial test that demonstrates the failure mode if pruning is introduced:
+  - `PartitionFunction_Tutorial.PruningUnderestimatesQ_ComparedToExactOracle`
 
 ## Decision: exact enumeration shortcut for small spaces
 
@@ -53,5 +55,15 @@ Where:
 - `PartitionFunction<T>::computeWithGradientDescent` (see comments around step selection and buffer safety).
 
 Test strategy:
-- Add targeted tutorial tests after the A* tutorial tests are in place; these require checking branch behavior (step selection and buffer-empty safety).
+- Targeted tutorial tests exist to lock down control-loop edge cases:
+  - `PartitionFunction_Tutorial_GD.NoConformations_EarlyReturnNegInfBounds`
+  - `PartitionFunction_Tutorial_GD.SingleConformation_ConvergesExact`
+  - `PartitionFunction_Tutorial_GD.CantMakeProgressWhenRemainingIsPosInf_ReturnsNonConverged`
+
+## How to run the tutorial tests
+
+```bash
+ctest --test-dir build/cpp/kstar --output-on-failure -R '^PartitionFunction_Tutorial\\.'
+ctest --test-dir build/cpp/kstar --output-on-failure -R '^PartitionFunction_Tutorial_GD\\.'
+```
 
