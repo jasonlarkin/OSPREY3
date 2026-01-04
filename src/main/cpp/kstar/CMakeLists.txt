@@ -491,6 +491,30 @@ if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_DESIGN_CHOICES_GTEST_FILE})
     )
 endif()
 
+# Partition function tutorial tests (GoogleTest)
+set(PARTITION_FUNCTION_TUTORIAL_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_partition_function_pruning_tutorial_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_TUTORIAL_GTEST_FILE})
+    add_executable(partition_function_tutorial_gtest ${PARTITION_FUNCTION_TUTORIAL_GTEST_FILE})
+    target_include_directories(partition_function_tutorial_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+    )
+    target_link_libraries(partition_function_tutorial_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(partition_function_tutorial_gtest)
+    kstar_apply_perf_opts(partition_function_tutorial_gtest)
+    kstar_apply_coverage(partition_function_tutorial_gtest)
+    kstar_apply_llvm_coverage(partition_function_tutorial_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(partition_function_tutorial_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST partition_function_tutorial_gtest_tests
+    )
+    set_tests_properties(${partition_function_tutorial_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;tutorial;partition_function"
+    )
+endif()
+
 # Log-space arithmetic tests (GoogleTest) - synthesized
 set(LOG_SPACE_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_log_space_gtest.cpp)
 if (BUILD_TESTING AND EXISTS ${LOG_SPACE_GTEST_FILE})
