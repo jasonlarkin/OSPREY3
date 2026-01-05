@@ -187,6 +187,39 @@ For quick review, it also writes a single markdown summary:
 
 - `${repo}/build/cpp/kstar-coverage/coverage/prod_coverage_delta.summary.md`
 
+### Optional: Plot how coverage accumulates across test categories (step-by-step)
+
+If you want a quick picture of “which test categories buy coverage?”, you can run labeled
+CTest groups incrementally and capture `lcov` after each step.
+
+1) Generate step tracefiles + a manifest JSON (defaults to `prod` mixture):
+
+```bash
+./scripts/kstar_coverage_accumulation.sh --steps synthesized verbatim fuzz_corpus coverage_regression
+```
+
+This writes:
+
+- Tracefiles: `build/cpp/kstar-coverage/coverage-steps/coverage.prod.step*.info`
+- Manifest: `build/cpp/kstar-coverage/coverage-steps/coverage_steps.prod.json`
+
+2) Plot accumulation (lines/functions/branches) from the manifest:
+
+```bash
+python3 ./scripts/tools/plot_kstar_coverage_accumulation.py \
+  build/cpp/kstar-coverage/coverage-steps/coverage_steps.prod.json
+```
+
+If `matplotlib` is missing:
+
+```bash
+pip install matplotlib
+```
+
+Example plot (prod-only):
+
+![Coverage accumulation (prod)](coverage/images/coverage_accumulation.prod.png)
+
 ### Promoting fuzz inputs into stable regressions (recommended)
 
 Fuzzing produces two kinds of useful inputs:
