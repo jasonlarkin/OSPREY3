@@ -4,7 +4,7 @@ set -euo pipefail
 # Run libFuzzer briefly to grow corpus, then run GCC+lcov prod-only coverage.
 #
 # Usage:
-#   ./scripts/kstar_fuzz_then_coverage.sh [FUZZ_SECONDS] [emat|astar|both]
+#   ./scripts/kstar_fuzz_then_coverage.sh [FUZZ_SECONDS] [emat|astar|pfunc|both|all]
 #
 # Outputs:
 #   - fuzz corpus:    build/cpp/kstar-fuzz/fuzz-corpus/<harness>/
@@ -14,7 +14,7 @@ set -euo pipefail
 #   - delta report:   build/cpp/kstar-coverage/coverage/prod_coverage_delta.summary.md
 #
 # Optional harness selection:
-#   ./scripts/kstar_fuzz_then_coverage.sh [FUZZ_SECONDS] [emat|astar|both]
+#   ./scripts/kstar_fuzz_then_coverage.sh [FUZZ_SECONDS] [emat|astar|pfunc|both|all]
 
 FUZZ_SECONDS="${1:-30}"
 HARNESS="${2:-emat}"
@@ -65,12 +65,20 @@ case "${HARNESS}" in
   astar)
     run_fuzzer "conf_search_astar" "${FUZZ_BUILD_DIR}/fuzz_conf_search_astar" 2048
     ;;
+  pfunc)
+    run_fuzzer "partition_function" "${FUZZ_BUILD_DIR}/fuzz_partition_function" 2048
+    ;;
   both)
     run_fuzzer "energy_matrix_loader" "${FUZZ_BUILD_DIR}/fuzz_energy_matrix_loader" 65536
     run_fuzzer "conf_search_astar" "${FUZZ_BUILD_DIR}/fuzz_conf_search_astar" 2048
     ;;
+  all)
+    run_fuzzer "energy_matrix_loader" "${FUZZ_BUILD_DIR}/fuzz_energy_matrix_loader" 65536
+    run_fuzzer "conf_search_astar" "${FUZZ_BUILD_DIR}/fuzz_conf_search_astar" 2048
+    run_fuzzer "partition_function" "${FUZZ_BUILD_DIR}/fuzz_partition_function" 2048
+    ;;
   *)
-    echo "usage: $0 [FUZZ_SECONDS] [emat|astar|both]" >&2
+    echo "usage: $0 [FUZZ_SECONDS] [emat|astar|pfunc|both|all]" >&2
     exit 2
     ;;
 esac

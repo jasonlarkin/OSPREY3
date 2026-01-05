@@ -146,10 +146,12 @@ This currently includes (when built):
 
 - `kstar.energy_matrix_loader_corpus_runner`
 - `kstar.conf_search_astar_corpus_runner`
+- `kstar.partition_function_corpus_runner`
 
 Notes:
 
 - The “with fuzz corpus replay” phase runs with `KSTAR_CORPUS_RUNNER_STRICT=1` so corpus-runner determinism / differential-check failures surface as actionable test failures (instead of silently skipping inputs).
+- The `kstar.partition_function_corpus_runner` intentionally executes **both `double` and `float` instantiations** per input. This can drive **`d_funcs_hit`** deltas for template-heavy code (e.g. `PartitionFunction<float>` paths) even when line deltas are small.
 
 To see *which files* changed between baseline and fuzz, run:
 
@@ -198,6 +200,14 @@ Repo support:
 - **Regression CTest**: `kstar.energy_matrix_loader_regression`
   - labels: `coverage_regression`, `energy_matrix_loader`
   - always runs under `ctest` (always runs embedded seeds; replays local `*.bin` files if present)
+- **Optional local inputs directory**: `build/cpp/kstar/test_data/fuzz/conf_search_astar/`
+- **Regression CTest**: `kstar.conf_search_astar_regression`
+  - labels: `coverage_regression`, `conf_search_astar`
+  - always runs under `ctest` (always runs embedded seeds; replays local `*.bin` files if present)
+- **Optional local inputs directory**: `build/cpp/kstar/test_data/fuzz/partition_function/`
+- **Regression CTest**: `kstar.partition_function_regression`
+  - labels: `coverage_regression`, `partition_function`
+  - always runs under `ctest` (always runs embedded seeds; replays local `*.bin` files if present)
 
 Convenience scripts:
 
@@ -208,6 +218,16 @@ Convenience scripts:
 
 # run just the regression test (must point ctest at a build tree)
 ctest --test-dir build/cpp/kstar-coverage -R kstar.energy_matrix_loader_regression -V
+
+# promote a ConfSearchAStar input and run its regression test
+./scripts/kstar_promote_fuzz_artifact_conf_search_astar.sh \
+  build/cpp/kstar-fuzz/fuzz-corpus/conf_search_astar/<file>
+ctest --test-dir build/cpp/kstar-coverage -R kstar.conf_search_astar_regression -V
+
+# promote a PartitionFunction input and run its regression test
+./scripts/kstar_promote_fuzz_artifact_partition_function.sh \
+  build/cpp/kstar-fuzz/fuzz-corpus/partition_function/<file>
+ctest --test-dir build/cpp/kstar-coverage -R kstar.partition_function_regression -V
 ```
 
 ### 4) Open the report

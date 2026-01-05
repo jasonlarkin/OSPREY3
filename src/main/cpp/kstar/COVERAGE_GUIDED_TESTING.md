@@ -187,6 +187,47 @@ In the prod-compare target, corpus replay is run with:
   - `./scripts/kstar_fuzz_minimize_conf_search_astar.sh <artifact_file> <out_file>`
 - Promote into build-local regression inputs (not committed by default):
   - `./scripts/kstar_promote_fuzz_artifact_conf_search_astar.sh <artifact_or_corpus_file> [name]`
+- Keep the fuzz corpus small (recommended occasionally after long fuzz runs):
+  - `./scripts/kstar_fuzz_merge_conf_search_astar_corpus.sh`
+
+## Repo support: PartitionFunction fuzz target
+
+- **Target**: `fuzz_partition_function`
+- **Convenience runner**: `kstar_fuzz_partition_function`
+- **Seed generator (recommended)**: `kstar_fuzz_seed_partition_function`
+
+This harness synthesizes a tiny `EnergyMatrix` and exercises `PartitionFunction::compute(...)` in:
+- A* mode (baseline or fast)
+- GradientDescent mode
+
+It enforces:
+- determinism (repeatability for a fixed input/options),
+- basic bounds invariants,
+- NaN input policy (NaN anywhere => non-converged NaN result),
+- optional oracle containment for A* with epsilon>0 on tiny spaces.
+
+### Corpus replay for coverage
+
+Coverage builds include `kstar.partition_function_corpus_runner` (label `fuzz_corpus`), which replays:
+- `build/cpp/kstar-fuzz/fuzz-corpus/partition_function/`
+
+In the prod-compare target, corpus replay is run with:
+- `KSTAR_CORPUS_RUNNER_STRICT=1` (invariant/determinism failures surface as test failures).
+
+Notes:
+
+- The corpus runner intentionally executes **both `double` and `float` instantiations** per input. This makes the coverage delta report more informative for template-heavy code (e.g. `PartitionFunction<float>` / `EnergyMatrix<float>` paths).
+
+### Repro / minimize / promote workflow
+
+- Repro a crash/artifact:
+  - `./scripts/kstar_fuzz_repro_partition_function.sh <artifact_file>`
+- Minimize a crash/artifact:
+  - `./scripts/kstar_fuzz_minimize_partition_function.sh <artifact_file> <out_file>`
+- Promote into build-local regression inputs (not committed by default):
+  - `./scripts/kstar_promote_fuzz_artifact_partition_function.sh <artifact_or_corpus_file> [name]`
+- Keep the fuzz corpus small (recommended occasionally after long fuzz runs):
+  - `./scripts/kstar_fuzz_merge_partition_function_corpus.sh`
 
 ## Microbenchmarks (SYNTHESIZED tooling)
 
@@ -274,6 +315,22 @@ Whether the input comes from fuzzing or symbolic execution:
   - If it’s just new coverage: regression test asserts outputs/invariants.
 - **Prefer invariants over exact floats** when applicable (tolerances, monotonicity, bounds).
 - Add a label like `coverage_regression` so you can run them in CI separately.
+
+Local support in this repo (build-local, no committed binaries required):
+
+- `kstar.energy_matrix_loader_regression` (label: `coverage_regression`)
+  - replays `build/cpp/kstar/test_data/fuzz/energy_matrix_loader/*.bin` if present
+- `kstar.conf_search_astar_regression` (label: `coverage_regression`)
+  - replays `build/cpp/kstar/test_data/fuzz/conf_search_astar/*.bin` if present
+- `kstar.partition_function_regression` (label: `coverage_regression`)
+  - replays `build/cpp/kstar/test_data/fuzz/partition_function/*.bin` if present
+
+Quick local “gate” (recommended after fuzzing / corpus merges):
+
+```bash
+KSTAR_CORPUS_RUNNER_STRICT=1 ctest --test-dir build/cpp/kstar-coverage -L fuzz_corpus -V --output-on-failure
+ctest --test-dir build/cpp/kstar-coverage -L coverage_regression -V --output-on-failure
+```
 
 ## Coverage gap → tool decision table
 
@@ -410,7 +467,9 @@ Use:
 ```bash
 ./scripts/kstar_fuzz_then_coverage.sh 30 emat   # energy_matrix_loader
 ./scripts/kstar_fuzz_then_coverage.sh 30 astar  # conf_search_astar
-./scripts/kstar_fuzz_then_coverage.sh 30 both   # run both fuzzers, then coverage
+./scripts/kstar_fuzz_then_coverage.sh 30 pfunc  # partition_function
+./scripts/kstar_fuzz_then_coverage.sh 30 both   # emat + astar, then coverage
+./scripts/kstar_fuzz_then_coverage.sh 30 all    # emat + astar + pfunc, then coverage
 ```
 
 Plateau rule (when to consider adding more tools/harnesses):

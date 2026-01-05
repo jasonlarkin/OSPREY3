@@ -15,6 +15,7 @@ option(KSTAR_ENABLE_FUZZING "Enable libFuzzer-based fuzz targets (requires Clang
 option(KSTAR_ENABLE_SANITIZERS "Enable ASan/UBSan for kstar code/tests (use a dedicated build dir)" OFF)
 option(KSTAR_ENABLE_BENCHMARKS "Build kstar microbenchmarks (Google Benchmark)" OFF)
 option(KSTAR_ENABLE_PYTHON_BINDINGS "Build Python bindings (pybind11)" OFF)
+option(KSTAR_ENABLE_SIMD_INTRINSICS "Enable optional SIMD intrinsics in hot loops (build-time toggle for profiling)" ON)
 
 if (KSTAR_ENABLE_COVERAGE AND KSTAR_ENABLE_LLVM_COVERAGE)
     message(FATAL_ERROR "Enable only one coverage mode: KSTAR_ENABLE_COVERAGE (gcov/lcov) OR KSTAR_ENABLE_LLVM_COVERAGE (llvm-cov).")
@@ -125,6 +126,12 @@ kstar_apply_perf_opts(osprey_kstar_parallel)
 kstar_apply_coverage(osprey_kstar_parallel)
 kstar_apply_llvm_coverage(osprey_kstar_parallel)
 kstar_apply_sanitizers(osprey_kstar_parallel)
+
+if (KSTAR_ENABLE_SIMD_INTRINSICS)
+    target_compile_definitions(osprey_kstar_parallel PUBLIC OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS=1)
+else()
+    target_compile_definitions(osprey_kstar_parallel PUBLIC OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS=0)
+endif()
 
 # Include directories
 # REPO_ROOT already calculated above for test file
@@ -469,6 +476,27 @@ if (KSTAR_ENABLE_BENCHMARKS)
         )
     endif()
 
+    set(KSTAR_EXPANDINTO_ROOFLINE_BENCH_FILE ${REPO_ROOT}/src/test/cpp/kstar/bench_expandinto_roofline_google_benchmark.cpp)
+    if (EXISTS ${KSTAR_EXPANDINTO_ROOFLINE_BENCH_FILE})
+        add_executable(kstar_expandinto_roofline_bench ${KSTAR_EXPANDINTO_ROOFLINE_BENCH_FILE})
+        target_include_directories(kstar_expandinto_roofline_bench PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${REPO_ROOT}/src/main/cpp/kstar
+            ${REPO_ROOT}/src/test/cpp/kstar
+        )
+        target_link_libraries(kstar_expandinto_roofline_bench PRIVATE osprey_kstar_parallel benchmark::benchmark)
+        kstar_apply_default_warnings(kstar_expandinto_roofline_bench)
+        kstar_apply_perf_opts(kstar_expandinto_roofline_bench)
+
+        add_custom_target(kstar_run_expandinto_roofline_bench
+            COMMAND $<TARGET_FILE:kstar_expandinto_roofline_bench> --benchmark_min_time=0.2s
+            DEPENDS kstar_expandinto_roofline_bench
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Run Google Benchmark: expandInto roofline microbenchmark (synthetic EnergyMatrix)"
+            VERBATIM
+        )
+    endif()
+
     set(KSTAR_PFUNC_CHRONO_FILE ${REPO_ROOT}/src/test/cpp/kstar/bench_partition_function_chrono.cpp)
     if (EXISTS ${KSTAR_PFUNC_CHRONO_FILE})
         add_executable(kstar_partition_function_chrono ${KSTAR_PFUNC_CHRONO_FILE})
@@ -499,6 +527,9 @@ if (KSTAR_ENABLE_BENCHMARKS)
     endif()
     if (TARGET kstar_astar_search_bench)
         add_dependencies(kstar_bench_build kstar_astar_search_bench)
+    endif()
+    if (TARGET kstar_expandinto_roofline_bench)
+        add_dependencies(kstar_bench_build kstar_expandinto_roofline_bench)
     endif()
     if (TARGET kstar_partition_function_chrono)
         add_dependencies(kstar_bench_build kstar_partition_function_chrono)
@@ -1349,6 +1380,62 @@ if (BUILD_TESTING AND EXISTS ${ENERGY_MATRIX_LOADER_REGRESSION_GTEST_FILE})
     set_tests_properties(kstar.energy_matrix_loader_regression PROPERTIES LABELS "kstar;gtest;synthesized;coverage_regression;energy_matrix_loader")
 endif()
 
+# PartitionFunction regression tests (promoted fuzz artifacts, repo-local)
+set(PARTITION_FUNCTION_REGRESSION_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_partition_function_regression_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${PARTITION_FUNCTION_REGRESSION_GTEST_FILE})
+    add_executable(partition_function_regression_gtest ${PARTITION_FUNCTION_REGRESSION_GTEST_FILE})
+    target_include_directories(partition_function_regression_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(partition_function_regression_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(partition_function_regression_gtest)
+    kstar_apply_perf_opts(partition_function_regression_gtest)
+    kstar_apply_coverage(partition_function_regression_gtest)
+    kstar_apply_llvm_coverage(partition_function_regression_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(partition_function_regression_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST partition_function_regression_gtest_tests
+    )
+    set_tests_properties(${partition_function_regression_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;synthesized;coverage_regression;partition_function"
+    )
+
+    add_test(NAME kstar.partition_function_regression COMMAND $<TARGET_FILE:partition_function_regression_gtest>)
+    set_tests_properties(kstar.partition_function_regression PROPERTIES LABELS "kstar;gtest;synthesized;coverage_regression;partition_function")
+endif()
+
+# ConfSearchAStar regression tests (promoted fuzz artifacts, repo-local)
+set(CONF_SEARCH_ASTAR_REGRESSION_GTEST_FILE ${REPO_ROOT}/src/test/cpp/kstar/test_conf_search_astar_regression_gtest.cpp)
+if (BUILD_TESTING AND EXISTS ${CONF_SEARCH_ASTAR_REGRESSION_GTEST_FILE})
+    add_executable(conf_search_astar_regression_gtest ${CONF_SEARCH_ASTAR_REGRESSION_GTEST_FILE})
+    target_include_directories(conf_search_astar_regression_gtest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${REPO_ROOT}/src/main/cpp/kstar
+        ${REPO_ROOT}/src/test/cpp/kstar
+    )
+    target_link_libraries(conf_search_astar_regression_gtest PRIVATE osprey_kstar_parallel GTest::gtest GTest::gtest_main)
+    kstar_apply_default_warnings(conf_search_astar_regression_gtest)
+    kstar_apply_perf_opts(conf_search_astar_regression_gtest)
+    kstar_apply_coverage(conf_search_astar_regression_gtest)
+    kstar_apply_llvm_coverage(conf_search_astar_regression_gtest)
+
+    include(GoogleTest)
+    gtest_discover_tests(conf_search_astar_regression_gtest
+        DISCOVER_TESTS_DISCOVERED_BY_CMAKE TRUE
+        TEST_LIST conf_search_astar_regression_gtest_tests
+    )
+    set_tests_properties(${conf_search_astar_regression_gtest_tests} PROPERTIES
+        LABELS "kstar;gtest;synthesized;coverage_regression;conf_search_astar"
+    )
+
+    add_test(NAME kstar.conf_search_astar_regression COMMAND $<TARGET_FILE:conf_search_astar_regression_gtest>)
+    set_tests_properties(kstar.conf_search_astar_regression PROPERTIES LABELS "kstar;gtest;synthesized;coverage_regression;conf_search_astar")
+endif()
+
 # -----------------------------
 # "Full check" convenience target: build all tests + run ctest
 # -----------------------------
@@ -1377,6 +1464,8 @@ if (BUILD_TESTING)
         energy_matrix_loader_corpus_runner
         conf_search_astar_corpus_runner
         energy_matrix_loader_regression_gtest
+        partition_function_regression_gtest
+        conf_search_astar_regression_gtest
     )
         if (TARGET ${t})
             list(APPEND _kstar_check_deps ${t})
