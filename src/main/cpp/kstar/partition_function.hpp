@@ -3,7 +3,10 @@
 
 #include <cstdint>
 #include <concepts>
+#include <limits>
+#include <vector>
 #include <queue>
+#include <cstddef>
 #include "sequence.hpp"
 
 namespace osprey {
@@ -42,6 +45,36 @@ struct PartitionFunctionResult {
 };
 
 /**
+ * Optional trace step emitted during A* partition function computation.
+ *
+ * This is meant for interactive debugging/visualization. It is opt-in and has no
+ * overhead unless enabled via ComputeOptions (trace_max_steps > 0 and trace_steps != nullptr).
+ */
+template<std::floating_point T>
+struct PartitionFunctionTraceStep {
+    int64_t iter = 0;
+    int32_t level = 0;
+    int64_t open_size = 0;
+    int64_t num_confs_evaluated = 0;
+
+    // Node scores at the popped node.
+    T g_score = T(0);
+    T h_score = T(0);
+    T f_score = T(0);
+
+    // Current bounds in log10 space (matching the public API format).
+    T log10_q_lower = std::numeric_limits<T>::lowest();
+    T log10_q_upper = std::numeric_limits<T>::lowest();
+    T delta = T(1);
+    bool converged = false;
+    bool is_leaf = false;
+
+    // Optional full assignment vector (length = num_positions, -1 for unassigned).
+    // Captured only when ComputeOptions.trace_capture_assignments == true.
+    std::vector<int32_t> assignments{};
+};
+
+/**
  * Partition function calculator using A* search.
  * 
  * Computes the partition function Q = sum(exp(-E/kT)) for a given sequence
@@ -68,6 +101,16 @@ public:
         // When method == AStar, choose which A* implementation to run.
         // Baseline is kept intact for profiling/tracking.
         AStarVariant astar_variant = AStarVariant::Baseline;
+
+        // ---- Optional trace instrumentation (A* only) ----
+        //
+        // If trace_steps != nullptr and trace_max_steps > 0, A* will append trace steps
+        // as it runs, up to trace_max_steps.
+        //
+        // NOTE: This is intended for debugging/visualization and is not performance-friendly.
+        int64_t trace_max_steps = 0;
+        bool trace_capture_assignments = false;
+        std::vector<PartitionFunctionTraceStep<T>>* trace_steps = nullptr;
     };
 
     /**

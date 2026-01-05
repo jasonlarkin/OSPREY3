@@ -1649,10 +1649,10 @@ if (BUILD_TESTING AND KSTAR_ENABLE_COVERAGE)
             # --- with fuzz corpus replay ---
             COMMAND ${CMAKE_COMMAND} -E echo ""
             COMMAND ${CMAKE_COMMAND} -E echo "=== kstar-prod with fuzz corpus replay (includes label: fuzz_corpus) ==="
-            COMMAND ${CMAKE_COMMAND} -E echo "Resetting coverage counters..."
-            COMMAND $<$<BOOL:${FIND_EXEC}>:${FIND_EXEC}> . -name "*.gcda" -delete
-            COMMAND ${LCOV_EXEC} --directory . --zerocounters
-            COMMAND ${CMAKE_COMMAND} -E env KSTAR_CORPUS_RUNNER_STRICT=1 ${CMAKE_CTEST_COMMAND} --output-on-failure
+            # IMPORTANT: do NOT reset counters here. We want the "with fuzz" report to be
+            # cumulative from the baseline run, plus whatever new paths the fuzz corpus replay hits.
+            COMMAND ${CMAKE_COMMAND} -E echo "Running fuzz corpus replay without resetting counters (cumulative from baseline)..."
+            COMMAND ${CMAKE_COMMAND} -E env KSTAR_CORPUS_RUNNER_STRICT=1 ${CMAKE_CTEST_COMMAND} --output-on-failure -L fuzz_corpus
             COMMAND ${LCOV_EXEC} --capture --directory . --output-file coverage.raw.fuzz.info
                 --base-directory "${REPO_ROOT}"
                 --rc lcov_branch_coverage=1

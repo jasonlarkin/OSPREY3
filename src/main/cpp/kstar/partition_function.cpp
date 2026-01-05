@@ -113,6 +113,83 @@ template<std::floating_point T>
     ComputeOptions options
 ) {
     PartitionFunctionResult<T> result;
+
+    auto maybe_trace_fast = [&](const AStarNodeFast<T>& node,
+                                int64_t open_size,
+                                int64_t num_confs_evaluated,
+                                T log10_q_lower,
+                                T log10_q_upper,
+                                T delta,
+                                bool converged,
+                                bool is_leaf) {
+        if (options.trace_steps == nullptr || options.trace_max_steps <= 0) {
+            return;
+        }
+        auto& out = *options.trace_steps;
+        if (static_cast<int64_t>(out.size()) >= options.trace_max_steps) {
+            return;
+        }
+
+        PartitionFunctionTraceStep<T> s;
+        s.iter = static_cast<int64_t>(out.size());
+        s.level = node.level;
+        s.open_size = open_size;
+        s.num_confs_evaluated = num_confs_evaluated;
+        s.g_score = node.g_score;
+        s.h_score = node.h_score;
+        s.f_score = node.f_score;
+        s.log10_q_lower = log10_q_lower;
+        s.log10_q_upper = log10_q_upper;
+        s.delta = delta;
+        s.converged = converged;
+        s.is_leaf = is_leaf;
+        if (options.trace_capture_assignments) {
+            const int16_t* a = node.data();
+            s.assignments.reserve(static_cast<size_t>(node.num_positions));
+            for (int32_t i = 0; i < node.num_positions; ++i) {
+                s.assignments.push_back(static_cast<int32_t>(a[i]));
+            }
+        }
+        out.push_back(std::move(s));
+    };
+
+    auto maybe_trace_baseline = [&](const AStarNode<T>& node,
+                                    int64_t open_size,
+                                    int64_t num_confs_evaluated,
+                                    T log10_q_lower,
+                                    T log10_q_upper,
+                                    T delta,
+                                    bool converged,
+                                    bool is_leaf) {
+        if (options.trace_steps == nullptr || options.trace_max_steps <= 0) {
+            return;
+        }
+        auto& out = *options.trace_steps;
+        if (static_cast<int64_t>(out.size()) >= options.trace_max_steps) {
+            return;
+        }
+
+        PartitionFunctionTraceStep<T> s;
+        s.iter = static_cast<int64_t>(out.size());
+        s.level = node.level;
+        s.open_size = open_size;
+        s.num_confs_evaluated = num_confs_evaluated;
+        s.g_score = node.g_score;
+        s.h_score = node.h_score;
+        s.f_score = node.getScore();
+        s.log10_q_lower = log10_q_lower;
+        s.log10_q_upper = log10_q_upper;
+        s.delta = delta;
+        s.converged = converged;
+        s.is_leaf = is_leaf;
+        if (options.trace_capture_assignments) {
+            s.assignments.reserve(node.assignments.size());
+            for (int16_t rc : node.assignments) {
+                s.assignments.push_back(static_cast<int32_t>(rc));
+            }
+        }
+        out.push_back(std::move(s));
+    };
     
     int32_t num_positions = emat.getNumPositions();
     std::vector<int32_t> num_confs_per_pos(num_positions);
@@ -214,6 +291,18 @@ template<std::floating_point T>
                     break;
                 }
             }
+
+            // Trace after updating bounds for this popped node.
+            maybe_trace_fast(
+                node,
+                static_cast<int64_t>(open_set.size()),
+                num_confs_evaluated,
+                log10_q_lower,
+                (log10_q_upper > std::numeric_limits<T>::lowest()) ? log10_q_upper : log10_q_lower,
+                result.delta,
+                result.converged,
+                astar.isLeaf(node)
+            );
         }
 
         int64_t remaining_confs = total_confs - num_confs_evaluated;
@@ -422,6 +511,18 @@ template<std::floating_point T>
                 break;
             }
         }
+
+        // Trace after updating bounds for this popped node.
+        maybe_trace_baseline(
+            node,
+            static_cast<int64_t>(open_set.size()),
+            num_confs_evaluated,
+            log10_q_lower,
+            (log10_q_upper > std::numeric_limits<T>::lowest()) ? log10_q_upper : log10_q_lower,
+            result.delta,
+            result.converged,
+            astar.isLeaf(node)
+        );
     }
     
     // DEBUG: Check log10_q_lower after loop
@@ -571,6 +672,21 @@ template<std::floating_point T>
     std::vector<int32_t> num_confs_per_pos(num_positions);
     for (int32_t pos = 0; pos < num_positions; ++pos) {
         num_confs_per_pos[pos] = emat.getNumConfsAtPos(pos);
+    }
+
+    // If any position has 0 conformations, the ConfSearch yields nothing.
+    // For GD semantics, treat this as log10(Z)=log10(0) and non-converged/degenerate.
+    // (This also avoids constructing a ConfSearch on an empty product space.)
+    for (int32_t pos = 0; pos < num_positions; ++pos) {
+        if (num_confs_per_pos[pos] == 0) {
+            const T neg_inf = std::numeric_limits<T>::lowest(); // log10(0) = -inf
+            result.lower_bound = neg_inf;
+            result.upper_bound = neg_inf;
+            result.delta = T(1);
+            result.converged = false;
+            result.num_confs = 0;
+            return result;
+        }
     }
 
     // Build the ConfSearch used to enumerate conformations in increasing score.
@@ -924,9 +1040,11 @@ template<std::floating_point T>
             PartitionFunctionResult<T> r;
             r.lower_bound = std::numeric_limits<T>::lowest(); // log10(0) = -inf
             r.upper_bound = std::numeric_limits<T>::lowest();
-            r.delta = T(0);
+            // Treat as non-converged for GD semantics (ConfSearch yields nothing).
+            // For A* this is also a sensible sentinel: there is no mass to approximate.
+            r.delta = T(1);
             r.num_confs = 0;
-            r.converged = true;
+            r.converged = false;
             return r;
         }
     }
