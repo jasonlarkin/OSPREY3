@@ -8,6 +8,18 @@ This note documents how to run the `expandInto` roofline microbenchmark + plotti
 
 ![K* expandInto time vs working-set estimate](images/kstar_expandinto_working_set.png)
 
+### External real `.emat.bin` directory mode (current)
+
+![K* expandInto roofline (real external)](images/kstar_expandinto_roofline_real_external.png)
+
+![K* expandInto time vs working-set estimate (real external)](images/kstar_expandinto_working_set_real_external.png)
+
+### Bootstrapped-from-real DRAM-scale mode (current)
+
+![K* expandInto roofline (bootstrapped)](images/kstar_expandinto_roofline_bootstrapped.png)
+
+![K* expandInto time vs working-set estimate (bootstrapped)](images/kstar_expandinto_working_set_bootstrapped.png)
+
 ## Data source: real molecules vs synthetic
 
 There are two distinct benchmark families in this codebase:
@@ -26,6 +38,18 @@ There are two distinct benchmark families in this codebase:
   - same binary, additional benchmark: `BM_AStarFast_ExpandInto_Roofline_RealEmat`
   - loads `.emat.bin` via `EnergyMatrixLoader` + `test_data_paths.hpp` resolution
   - intended for comparing synthetic scaling against a molecule-derived RC distribution and block shapes
+
+- **Roofline benchmark also includes an external real `.emat.bin` directory mode**
+  - additional benchmark: `BM_AStarFast_ExpandInto_Roofline_RealEmatExternal`
+  - enabled by `OSPREY_KSTAR_REAL_EMAT_DIR=/path/to/dir_with_emat_bins`
+  - loads `*.emat.bin` directly from that directory
+
+- **Roofline benchmark also includes a bootstrapped-from-real DRAM-scale mode**
+  - additional benchmark: `BM_AStarFast_ExpandInto_Roofline_RealEmatBootstrapped`
+  - inflates a base `.emat.bin` into a large working set by tiling/repeating one-body and pairwise blocks
+  - enabled by `OSPREY_KSTAR_BOOTSTRAP_EMAT=/path/to/base.emat.bin` (or falls back to `OSPREY_KSTAR_REAL_EMAT_DIR`, then build-local test data)
+  - purpose: memory-hierarchy characterization when there is no genuinely large real `.emat.bin`
+  - not a chemically valid new system (energies are repeated)
 
 ## Why points can appear “above” the roofline
 
@@ -171,6 +195,32 @@ To generate a single plot that contains both the synthetic sweep and the real-`.
 ```bash
 cd /mnt/c/Users/denis/Documents/jobs_october_2025/ten63/osprey-fork_modern
 bash scripts/tools/run_kstar_expandinto_roofline_real_vs_synth.sh OUT_DIR=build/cpp/kstar/roofline_plots MIN_TIME=200ms REPS=3
+```
+
+## Real `.emat.bin` DRAM-scale (external directory mode)
+
+Run `expandInto` roofline on a directory of real `*.emat.bin`:
+
+```bash
+export OSPREY_KSTAR_REAL_EMAT_DIR=/abs/path/to/emat_dir
+./build/cpp/kstar/kstar_expandinto_roofline_bench --benchmark_filter='^BM_AStarFast_ExpandInto_Roofline_RealEmatExternal/.*' \
+  --benchmark_min_time=200ms --benchmark_repetitions=3 --benchmark_report_aggregates_only=true --benchmark_format=json \
+  --benchmark_out=expandinto_roofline_real_external.json
+```
+
+Note: if `OSPREY_KSTAR_REAL_EMAT_DIR` contains only small `.emat.bin` files, points will remain cache-resident; DRAM-scale requires a large ConfSpace / RC-count.
+
+## DRAM-scale derived from OSPREY examples (bootstrapped mode)
+
+If there is no genuinely large real `.emat.bin` available, the bootstrapped mode inflates a base `.emat.bin` into DRAM-scale matrices by repeating blocks.
+
+This yields a DRAM-scale working set derived from OSPREY-exported energies (but it is not a chemically valid new system).
+
+```bash
+export OSPREY_KSTAR_BOOTSTRAP_EMAT=/mnt/c/Users/denis/Documents/jobs_october_2025/ten63/osprey-fork_modern/build/cpp/kstar/test_data/6ov7.2m4f.complex.emat.bin
+./build/cpp/kstar/kstar_expandinto_roofline_bench --benchmark_filter='^BM_AStarFast_ExpandInto_Roofline_RealEmatBootstrapped/.*' \
+  --benchmark_min_time=200ms --benchmark_repetitions=3 --benchmark_report_aggregates_only=true --benchmark_format=json \
+  --benchmark_out=expandinto_roofline_real_bootstrapped.json
 ```
 
 ## Making the model match the hierarchy you’re exercising

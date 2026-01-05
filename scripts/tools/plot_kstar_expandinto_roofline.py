@@ -38,14 +38,25 @@ class Point:
 
 
 def parse_benchmark_json(path: Path, label: str) -> List[Point]:
-    obj = json.loads(path.read_text())
+    txt = path.read_text()
+    if not txt.strip():
+        raise SystemExit(f"Empty JSON input: {path} (benchmark likely matched 0 cases or failed before writing output)")
+    try:
+        obj = json.loads(txt)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Invalid JSON input: {path}: {e}") from e
     benches = obj.get("benchmarks", [])
     out: List[Point] = []
 
     for b in benches:
         name = str(b.get("name", ""))
-        # Accept both synthetic and real-.emat modes.
-        if ("BM_AStarFast_ExpandInto_Roofline/") not in name and ("BM_AStarFast_ExpandInto_Roofline_RealEmat/") not in name:
+        # Accept synthetic + real-.emat modes (in-repo + external directory).
+        if (
+            ("BM_AStarFast_ExpandInto_Roofline/") not in name
+            and ("BM_AStarFast_ExpandInto_Roofline_RealEmat/") not in name
+            and ("BM_AStarFast_ExpandInto_Roofline_RealEmatExternal/") not in name
+            and ("BM_AStarFast_ExpandInto_Roofline_RealEmatBootstrapped/") not in name
+        ):
             continue
         run_type = str(b.get("run_type", ""))
         if run_type == "iteration":
