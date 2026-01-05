@@ -206,6 +206,24 @@ tasks.register<JavaExec>("kstarPfuncBench") {
 	//  ./gradlew kstarPfuncBench --args='--cases=2RL0_Complex --methods=simple --reps=1 --threads=1'
 }
 
+tasks.register<JavaExec>("kstarAStarBench") {
+	group = "verification"
+	description = "Run Java OSPREY A* benchmark main (for Java vs C++ comparison)."
+	dependsOn("testClasses")
+	val testClasspath = tasks.named<Test>("test").get().classpath
+	classpath = testClasspath
+	mainClass.set("edu.duke.cs.osprey.astar.BenchmarkAStar")
+}
+
+tasks.register<JavaExec>("kstarPartitionFunctionBenchMain") {
+	group = "verification"
+	description = "Run Java OSPREY partition function benchmark main (legacy; for Java vs C++ comparison)."
+	dependsOn("testClasses")
+	val testClasspath = tasks.named<Test>("test").get().classpath
+	classpath = testClasspath
+	mainClass.set("edu.duke.cs.osprey.kstar.BenchmarkPartitionFunction")
+}
+
 distributions {
 	main {
 		contents {
