@@ -17,6 +17,31 @@ Related docs:
 
 ### Categories (what to add first)
 
+#### 0) Crash-safety tests (sanitizers + fuzzing + corpus replay)
+
+Goal: catch memory errors/UB and make fuzz results actionable and repeatable.
+
+Repo locations:
+
+- libFuzzer targets (clang): `src/test/cpp/kstar/fuzz_*.cpp`
+- Corpus replay under CTest (coverage + strict determinism): `src/test/cpp/kstar/*_corpus_runner.cpp`
+- Build-local regression tests for promoted inputs (embedded seeds + optional `*.bin` replay):
+  - `kstar.energy_matrix_loader_regression`
+  - `kstar.conf_search_astar_regression`
+  - `kstar.partition_function_regression`
+
+Local sanitizer gate (clang ASan/UBSan):
+
+- `./scripts/kstar_sanitize_gate.sh`
+
+Rule:
+
+- Use `-fsanitize=address,undefined`. Do **not** add `-fsanitize=leak` on top of ASan. Control leak detection via `ASAN_OPTIONS=detect_leaks=1|0`.
+- Build dir for sanitizers should live on the Linux filesystem (e.g. `$HOME/kstar-sanitize`), not under `/mnt/c/...`, to avoid WSL/DRVFS startup/discovery crashes.
+- On WSL, avoid driving sanitizer builds via `ctest` because GTest discovery runs binaries during test enumeration. Use `kstar_sanitize_gate.sh`, which runs a curated set of binaries directly.
+- On WSL, run UBSan-only by default (reliable). Enable ASan+UBSan explicitly:
+  - `KSTAR_SANITIZE_ASAN=1 ./scripts/kstar_sanitize_gate.sh`
+
 #### 1) Oracle tests (exact enumeration on tiny spaces)
 
 Goal: catch algorithmic mistakes with ground truth.
@@ -29,6 +54,7 @@ Typical oracles:
 Repo location:
 
 - `src/test/cpp/kstar/test_partition_function_precision_tier0_gtest.cpp`
+- `src/test/cpp/kstar/test_conf_search_astar_synthesized_gtest.cpp` (tiny-space oracle vs `EnergyMatrix::computeEnergy()`)
 
 #### 2) Metamorphic / invariant tests (no oracle required)
 
@@ -44,6 +70,7 @@ High-ROI invariants for partition functions:
 Repo location:
 
 - `src/test/cpp/kstar/test_partition_function_precision_tier1_gtest.cpp`
+- `src/test/cpp/kstar/test_conf_search_astar_synthesized_gtest.cpp` (metamorphic invariants on tiny spaces)
 
 #### 3) Differential tests (two implementations must agree)
 
@@ -86,12 +113,16 @@ Partition function:
 - [x] Pairwise-zero factorization: closed-form oracle when pairwise terms are zero.
 - [x] Monotonicity: lowering any energy term must not decrease $Z$ (or $\log Z$).
 - [x] A* bounds contain exact under epsilon>0 (oracle via epsilon=0, A* run with exact enumeration disabled).
-- [ ] NaN/Inf policy tests: define and enforce behavior on non-finite energies.
+- [x] NaN/Inf policy tests: define and enforce behavior on non-finite energies.
 
 Conf search / A* search:
 
-- Determinism under fixed input (already high ROI; keep as a guardrail).
-- Tie-heavy scenarios to stress ordering and priority-queue behavior.
+- [x] Determinism under fixed input (guardrail; also enforced by fuzz corpus runner in strict mode).
+- [x] Tie-heavy scenarios to stress ordering and priority-queue behavior (fuzz modes).
+- [x] Tiny-space oracle vs exact `EnergyMatrix::computeEnergy()` (baseline + fast).
+- [x] Metamorphic: permutation invariance (score multiset).
+- [x] Metamorphic: const-term shift invariance (all scores shift by constant).
+- [x] Metamorphic: monotonicity under energy lowering (scores non-increasing as a multiset).
 
 ### How to run correctness suites (CTest)
 

@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -231,6 +232,16 @@ int main() {
     const char* env = std::getenv("KSTAR_FUZZ_CORPUS_DIR_CONF_SEARCH_ASTAR");
     const std::string corpusDir = (env && *env) ? std::string(env) : getCorpusDirDefault();
 
+    const bool trace = (std::getenv("KSTAR_CORPUS_RUNNER_TRACE") != nullptr);
+    std::optional<std::size_t> limit;
+    if (const char* lim = std::getenv("KSTAR_CORPUS_RUNNER_LIMIT")) {
+        try {
+            limit = static_cast<std::size_t>(std::stoull(lim));
+        } catch (...) {
+            // ignore invalid
+        }
+    }
+
     std::error_code ec;
     if (!fs::exists(corpusDir, ec) || !fs::is_directory(corpusDir, ec)) {
         std::cout << "[conf_search_astar_corpus_runner] corpus dir not found; skipping: " << corpusDir << "\n";
@@ -244,9 +255,13 @@ int main() {
     for (const auto& entry : fs::directory_iterator(corpusDir, ec)) {
         if (ec) break;
         if (!entry.is_regular_file()) continue;
+        if (limit && filesVisited >= *limit) break;
         ++filesVisited;
 
         const auto path = entry.path();
+        if (trace) {
+            std::cout << "[conf_search_astar_corpus_runner] file=" << path.string() << "\n" << std::flush;
+        }
         const auto fsize = entry.file_size(ec);
         if (ec) continue;
         if (fsize == 0 || fsize > 4 * 1024 * 1024) continue;
