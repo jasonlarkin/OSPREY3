@@ -899,12 +899,43 @@ template<std::floating_point T>
         return bad;
     }
 
+    // Handle degenerate conformation spaces safely and deterministically.
+    //
+    // - If there are zero positions, there is exactly one conformation (the empty assignment).
+    //   Its energy is the EnergyMatrix constant term.
+    // - If any position has zero conformations, there are zero total conformations and Q==0.
+    //
+    // These cases must be handled even when allow_exact_enumeration==false, because they are
+    // not "shortcuts"—they are required for correctness and to avoid undefined behavior in
+    // downstream A* implementations (eg, Fast A* assumes num_positions_ > 0).
+    const int32_t num_positions = emat.getNumPositions();
+    if (num_positions == 0) {
+        PartitionFunctionResult<T> r;
+        const T log10_w = log10BoltzmannWeight(emat.getConstTerm());
+        r.lower_bound = log10_w;
+        r.upper_bound = log10_w;
+        r.delta = T(0);
+        r.num_confs = 1;
+        r.converged = true;
+        return r;
+    }
+    for (int32_t pos = 0; pos < num_positions; ++pos) {
+        if (emat.getNumConfsAtPos(pos) <= 0) {
+            PartitionFunctionResult<T> r;
+            r.lower_bound = std::numeric_limits<T>::lowest(); // log10(0) = -inf
+            r.upper_bound = std::numeric_limits<T>::lowest();
+            r.delta = T(0);
+            r.num_confs = 0;
+            r.converged = true;
+            return r;
+        }
+    }
+
     // Keep the "exact enumeration" shortcut for A* path only, and only when allowed.
     if (options.allow_exact_enumeration && method == PartitionFunctionMethod::AStar) {
         constexpr int64_t exact_enum_threshold = 5'000'000;
 
         int64_t total_confs = 1;
-        const int32_t num_positions = emat.getNumPositions();
         for (int32_t pos = 0; pos < num_positions; ++pos) {
             total_confs *= static_cast<int64_t>(emat.getNumConfsAtPos(pos));
             if (total_confs > exact_enum_threshold) {

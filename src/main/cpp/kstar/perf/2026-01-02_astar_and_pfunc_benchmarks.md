@@ -80,7 +80,7 @@ OSPREY Java already precomputes offsets in `edu.duke.cs.osprey.confspace.Abstrac
 
 and its `getPairwiseIndex(res1,conf1,res2,conf2)` is O(1) using `pairwiseOffsets[...] + numConfAtPos[res2]*conf1 + conf2`.
 
-So this C++ change is not “new behavior”, it is bringing our port’s indexing strategy in line with the Java baseline and removing an accidental O(pos²) per-lookup cost that the Java code avoids.
+This change brings indexing strategy in line with the Java baseline and removing an accidental O(pos²) per-lookup cost that the Java code avoids.
 
 ### A* hot-loop benchmark results after the fix
 
@@ -176,7 +176,7 @@ perf report
 #### Important: avoid “Missing test data …” during perf runs
 
 The benchmark resolves `.emat.bin` inputs via `OSPREY_KSTAR_TEST_DATA_DIR` or by searching upward from the **current working directory**
-(see `src/test/cpp/kstar/test_data_paths.hpp`). If you run `perf record` from repo root, it may not find `build/cpp/kstar/test_data`.
+(see `src/test/cpp/kstar/test_data_paths.hpp`). If run `perf record` from repo root, it may not find `build/cpp/kstar/test_data`.
 
 Two reliable options:
 
@@ -293,7 +293,7 @@ When reading perf/benchmark results, it’s important to distinguish two differe
   - **P = number of design positions**
   - **r_i = number of rotamers/conformations at position i**
 
-For an `EnergyMatrix` (as used by our A\* hot-loop microbenchmarks), the key derived counts are:
+For an `EnergyMatrix` (as used by A\* hot-loop microbenchmarks), the key derived counts are:
 
 - **1-body term count**: \( \sum_i r_i \)
 - **2-body term count**: \( \sum_{i>j} r_i r_j \)
@@ -435,7 +435,7 @@ If the `.emat.bin` test data is missing/outdated, regenerate via the Java export
 
 ## Correctness gate status (this run)
 
-You ran the gate after the benchmark work and it is **green**:
+Ran the gate after the benchmark work and it is **green**:
 
 - **`PartitionFunction_VERBATIM.*`**:
   - **Passed**: all CPU tests
@@ -508,3 +508,154 @@ Interpretation:
 Note on `min_time:0.500` in the printed benchmark name:
 - The benchmark is registered in code with `->MinTime(0.5)`, so Google Benchmark prints `min_time:0.500` even when running with a higher `--benchmark_min_time` flag.
   Use the wall time + repetitions/CV as the stability indicator.
+
+## 2026-01-04: perf annotate on `AStarSearchFast::expandInto` (low-level view)
+
+This is the current CPU hotspot for the fast A* benchmark on the largest built-in workload (`case:3`).
+
+### Commands used
+
+Fast:
+
+```bash
+cd build/cpp/kstar
+taskset -c 0 perf record -g --call-graph dwarf -o perf_fast_case3.data -- \
+  ./kstar_astar_search_bench \
+  --benchmark_filter='^BM_AStarFast_PopExpand/case:3/' \
+  --benchmark_min_time=20s --benchmark_repetitions=1
+perf annotate -i perf_fast_case3.data --stdio 'osprey::kstar::AStarSearchFast<double>::expandInto'
+```
+
+Baseline (avoid “lost chunks” by lowering sample rate and increasing buffers):
+
+```bash
+cd build/cpp/kstar
+taskset -c 0 perf record -F 999 -m 512 -g --call-graph dwarf -o perf_baseline_case3.data -- \
+  ./kstar_astar_search_bench \
+  --benchmark_filter='^BM_AStarBaseline_PopExpand/case:3/' \
+  --benchmark_min_time=20s --benchmark_repetitions=1
+```
+
+### 2026-01-04: `perf` annotate on a local-data case (`case:2`)
+
+This is the same analysis, but pinned to a case that exists in the local build test-data.
+In this repo state, `case:3` may be absent from the `kstar-perf` build tree (`test_data/2RL0.complex.emat.bin` missing),
+so use `case:2` for repeatable profiling.
+
+Commands (run from the perf build directory so `test_data_paths.hpp` can resolve `./test_data/...`):
+
+```bash
+cd build/cpp/kstar-perf
+rm -f perf.data
+taskset -c 0 perf record -F 999 -m 1024 -g --call-graph dwarf -- \
+  ./kstar_astar_search_bench \
+  --benchmark_filter='^BM_AStarFast_PopExpand/case:2/' \
+  --benchmark_repetitions=5 \
+  --benchmark_min_time=500ms \
+  --benchmark_report_aggregates_only=true
+
+perf report --stdio --no-children --sort symbol | head -n 120
+perf annotate --stdio -l -s 'osprey::kstar::AStarSearchFast<double>::expandInto'
+```
+
+Observed summary:
+
+- `perf report` shows **~43%** of sampled cycles in `osprey::kstar::AStarSearchFast<double>::expandInto`.
+- `perf annotate` (sorted-by-file view) points to these line-level hotspots inside `expandInto`:
+  - **`astar_search_fast.cpp:249` (~12.7%)**: min-reduction update (`min_for_rc[rc] = min(min_for_rc[rc], base_e + row[rc])`).
+  - **`astar_search_fast.cpp:224` (~8.3%)**: building `expand_base_buf_` by adding pairwise contributions for already-assigned positions
+    via a strided walk (`p += blk.n2`).
+  - **`astar_search_fast.cpp:270` (~6.4%)**: building `child_g[]` by adding pairwise contributions for already-assigned positions
+    via a strided walk (`p += blk.n2`).
+  - **`astar_search_fast.cpp:282` (~5.2%)**: child materialization (write `h_score`, `f_score`, etc).
+
+Interpretation:
+
+- The next “math-side” target is the **min-reduction loop** (`:249`): it is the single hottest line in `expandInto` in this profile.
+- The `:224` / `:270` loops are also meaningful, but they are dominated by a **strided memory access pattern**; improving them is more likely to require
+  data-layout changes (or a blocked/transposed representation) than local scalar tweaks.
+- The source view also shows non-trivial overhead in the `out.clear()` path (`stl_vector.h` frames). This happens because `AStarNodeFast<T>` is not
+  trivially destructible (it embeds `std::vector<int16_t>`), so clearing `std::vector<AStarNodeFast<...>>` runs element destructors even when the heap
+  fallback is not used.
+
+### 2026-01-04: post node-layout change (remove embedded `std::vector` from `AStarNodeFast`)
+
+Change: `AStarNodeFast<T>` heap fallback converted from embedded `std::vector<int16_t>` to a conditional heap pointer (`int16_t*` allocated only when active).
+Measured layout impact is recorded in `STRUCT_LAYOUT_AND_ASTAR_NODE_DESIGN.md`.
+
+Benchmark (`BM_AStarFast_PopExpand/case:2`, `max_pops=1000`, `min_time=500ms`, 5 reps, pinned CPU0):
+
+- before: mean ~649 µs, CV ~12.1%
+- after:  mean ~599 µs, CV ~9.4%
+
+`perf report` (same run) still shows `expandInto` as the dominant symbol (~42%), but the internal attribution shifts:
+
+- the previous `out.clear()` destructor work tied to an embedded `std::vector<int16_t>` subobject drops out of the top frames
+- SIMD stores in the min-reduction path become visible (e.g. `_mm256_storeu_pd` showing up as a non-trivial fraction of cycles)
+- remaining non-math cost concentrates in child materialization and node-copy/relocation paths (`out.emplace_back(node)` / `std::vector::reserve` relocate)
+
+### What the assembly shows
+
+Two distinct patterns show up in `perf annotate` for `expandInto`:
+
+1. **“Min-reduction” inner loop is already vectorized**
+
+The hottest loop in `expandInto` is computing, for each RC at the newly assigned position `k`, the minimum energy over all RCs at some `pos1 > k`.
+`perf annotate` shows AVX-style packed floating point and a mask-based conditional update:
+
+```text
+vaddpd   (%rax,%rdx,1),%ymm2,%ymm0
+vcmpltpd (%rbx,%rdx,1),%ymm0,%k1
+kortestb %k1,%k1
+vmovupd  %ymm0,(%rbx,%rdx,1){%k1}
+```
+
+Interpretation:
+- `vaddpd`: compute a vector of candidate energies (`base_e + pairwise_row`) for multiple RCs at once.
+- `vcmpltpd` + `k1`: compare candidates against the current min vector, producing a lane mask.
+- `vmovupd ... {k1}`: masked store that updates only the lanes that improved.
+
+This means the “obvious SIMD” for the min-reduction is *already happening* in the compiler output.
+Further wins here likely require algorithmic changes (reduce work) or data-layout changes (make the vectorized loop cheaper to feed).
+
+2. **`std::vector<AStarNodeFast<...>> out` management shows up as real work**
+
+At the top of `expandInto`, `out.clear()` destroys prior children. In the annotate output this appears as a loop calling sized `operator delete`.
+Later when the vector grows can see `operator new` in the “push/emplace” path.
+
+This is not a correctness issue, but it is a reminder of the “objects are bytes” point:
+- the CPU only sees pointers and sizes,
+- the compiler emits destructor/allocator traffic based on the C++ object model,
+- poor layout or unnecessary heap ownership turns into extra loads/stores and allocator calls.
+
+The relevant structure is `AStarNodeFast<T>` (`src/main/cpp/kstar/astar_node_fast.hpp`), which currently embeds both:
+- an inline fixed-size assignment array, and
+- a `std::vector<int16_t>` heap fallback.
+
+Even when `uses_heap == false`, the node still *contains* a `std::vector` subobject, which impacts:
+- object size (cache footprint),
+- copy/move/destruct cost (what `out.clear()` does),
+- and the amount of memory moved around when expanding a node.
+
+### Immediate micro-experiment target: node representation/layout
+
+Before touching more math, the next low-level experiment should be to make the node payload cheaper to copy/move/destroy.
+Concrete options (pick one and benchmark/perf it end-to-end):
+
+- **Split inline vs heap node representations**:
+  - `AStarNodeFastInline` for `num_positions <= 16` with *no `std::vector` member* (trivially destructible).
+  - `AStarNodeFastHeap` for larger cases (explicit heap storage).
+  - Keep the search templated on node type (already the case).
+
+- **Replace `std::vector<int16_t>` with manual heap storage**:
+  - `int16_t* ptr`, `uint32_t size`, `uint32_t cap`, plus an inline buffer.
+  - Only allocate/free when `uses_heap == true`.
+  - This eliminates “vector semantics” and shrinks destructor surface area.
+
+- **Field ordering / packing**:
+  - group 8-byte fields (`g_score/h_score/f_score`) together,
+  - pack small ints/bools to reduce padding,
+  - verify `sizeof(AStarNodeFast<double>)` and how many nodes fit in a 64-byte cache line.
+
+The goal is not to hand-wave about structs; it is to translate `perf annotate` symptoms into measurable changes:
+smaller node ⇒ fewer bytes moved per child ⇒ less pressure in `expandInto` and heap structures ⇒ faster A*.

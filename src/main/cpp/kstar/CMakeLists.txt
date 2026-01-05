@@ -1109,6 +1109,47 @@ if (BUILD_TESTING)
         set_tests_properties(kstar.bench_pfunc_smoke PROPERTIES LABELS "kstar;benchmark;synthesized;smoke;partition_function")
     endif()
 
+    # Benchmark category: memory hierarchy pressure (longer, larger working sets).
+    # Intended for explicit runs: `ctest -R '^kstar\\.bench_mem\\.'` or `ctest -L mem_hierarchy`.
+    #
+    # IMPORTANT: avoid parentheses/alternation in --benchmark_filter here. CTest can split args
+    # in surprising ways, and Google Benchmark will then interpret stray tokens as flags.
+    if (KSTAR_ENABLE_BENCHMARKS AND TARGET kstar_expandinto_roofline_bench)
+        add_test(NAME kstar.bench_mem.expandinto_roofline_32 COMMAND $<TARGET_FILE:kstar_expandinto_roofline_bench>
+            --benchmark_filter=^BM_AStarFast_ExpandInto_Roofline/num_pos:32/rc:64/.*
+            --benchmark_min_time=0.2s
+            --benchmark_repetitions=3
+            --benchmark_report_aggregates_only=true
+        )
+        set_tests_properties(kstar.bench_mem.expandinto_roofline_32 PROPERTIES LABELS "kstar;benchmark;synthesized;mem_hierarchy;expandInto;roofline")
+
+        add_test(NAME kstar.bench_mem.expandinto_roofline_48 COMMAND $<TARGET_FILE:kstar_expandinto_roofline_bench>
+            --benchmark_filter=^BM_AStarFast_ExpandInto_Roofline/num_pos:48/rc:64/.*
+            --benchmark_min_time=0.2s
+            --benchmark_repetitions=3
+            --benchmark_report_aggregates_only=true
+        )
+        set_tests_properties(kstar.bench_mem.expandinto_roofline_48 PROPERTIES LABELS "kstar;benchmark;synthesized;mem_hierarchy;expandInto;roofline")
+
+        # Explicit DRAM-scale point (larger pairwise block working set).
+        add_test(NAME kstar.bench_mem.expandinto_roofline_64 COMMAND $<TARGET_FILE:kstar_expandinto_roofline_bench>
+            --benchmark_filter=^BM_AStarFast_ExpandInto_Roofline/num_pos:64/rc:64/.*
+            --benchmark_min_time=0.2s
+            --benchmark_repetitions=3
+            --benchmark_report_aggregates_only=true
+        )
+        set_tests_properties(kstar.bench_mem.expandinto_roofline_64 PROPERTIES LABELS "kstar;benchmark;synthesized;mem_hierarchy;expandInto;roofline;dram")
+
+        # Very large DRAM-scale point (setup cost is higher; keep repetitions low).
+        add_test(NAME kstar.bench_mem.expandinto_roofline_96 COMMAND $<TARGET_FILE:kstar_expandinto_roofline_bench>
+            --benchmark_filter=^BM_AStarFast_ExpandInto_Roofline/num_pos:96/rc:64/.*
+            --benchmark_min_time=0.2s
+            --benchmark_repetitions=1
+            --benchmark_report_aggregates_only=true
+        )
+        set_tests_properties(kstar.bench_mem.expandinto_roofline_96 PROPERTIES LABELS "kstar;benchmark;synthesized;mem_hierarchy;expandInto;roofline;dram")
+    endif()
+
     # Convenience umbrella for the precision suite (single entrypoint).
     if (TARGET partition_function_precision_tier0_gtest AND TARGET partition_function_precision_tier1_gtest AND TARGET log_space_precision_tier1_gtest)
         # Convenience build target: only the binaries executed by kstar.precision_all.

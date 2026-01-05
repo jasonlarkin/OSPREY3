@@ -2,9 +2,10 @@
 #define OSPREY_KSTAR_ASTAR_NODE_FAST_HPP
 
 #include <array>
-#include <vector>
 #include <cstdint>
 #include <concepts>
+#include <algorithm>
+#include <utility>
 
 namespace osprey {
 namespace kstar {
@@ -24,7 +25,7 @@ struct AStarNodeFast {
     // Inline storage for small num_positions, heap fallback otherwise.
     static constexpr int32_t kInlineCapacity = 16;
     std::array<int16_t, kInlineCapacity> inline_assignments{};
-    std::vector<int16_t> heap_assignments;
+    int16_t* heap_assignments = nullptr;
     int32_t num_positions = 0;
     bool uses_heap = false;
 
@@ -36,6 +37,64 @@ struct AStarNodeFast {
 
     // Tree depth (number of assigned positions)
     int32_t level;
+
+    ~AStarNodeFast() {
+        if (heap_assignments != nullptr) {
+            delete[] heap_assignments;
+        }
+    }
+
+    AStarNodeFast() = default;
+
+    AStarNodeFast(const AStarNodeFast& o)
+        : inline_assignments(o.inline_assignments),
+          heap_assignments(nullptr),
+          num_positions(o.num_positions),
+          uses_heap(o.uses_heap),
+          g_score(o.g_score),
+          h_score(o.h_score),
+          f_score(o.f_score),
+          level(o.level) {
+        if (o.heap_assignments != nullptr) {
+            heap_assignments = new int16_t[static_cast<size_t>(num_positions)];
+            std::copy(o.heap_assignments, o.heap_assignments + static_cast<size_t>(num_positions), heap_assignments);
+        }
+    }
+
+    AStarNodeFast(AStarNodeFast&& o) noexcept
+        : inline_assignments(o.inline_assignments),
+          heap_assignments(o.heap_assignments),
+          num_positions(o.num_positions),
+          uses_heap(o.uses_heap),
+          g_score(o.g_score),
+          h_score(o.h_score),
+          f_score(o.f_score),
+          level(o.level) {
+        o.heap_assignments = nullptr;
+        o.num_positions = 0;
+        o.uses_heap = false;
+        o.level = 0;
+        o.g_score = T(0);
+        o.h_score = T(0);
+        o.f_score = T(0);
+    }
+
+    AStarNodeFast& operator=(AStarNodeFast o) noexcept {
+        swap(o);
+        return *this;
+    }
+
+    void swap(AStarNodeFast& o) noexcept {
+        using std::swap;
+        swap(inline_assignments, o.inline_assignments);
+        swap(heap_assignments, o.heap_assignments);
+        swap(num_positions, o.num_positions);
+        swap(uses_heap, o.uses_heap);
+        swap(g_score, o.g_score);
+        swap(h_score, o.h_score);
+        swap(f_score, o.f_score);
+        swap(level, o.level);
+    }
 
     [[nodiscard]] T getScore() const noexcept {
         return f_score;
@@ -49,7 +108,8 @@ struct AStarNodeFast {
         node.num_positions = num_positions_in;
         node.uses_heap = (num_positions_in > kInlineCapacity);
         if (node.uses_heap) {
-            node.heap_assignments.assign(static_cast<size_t>(num_positions_in), -1);
+            node.heap_assignments = new int16_t[static_cast<size_t>(num_positions_in)];
+            std::fill(node.heap_assignments, node.heap_assignments + static_cast<size_t>(num_positions_in), static_cast<int16_t>(-1));
         } else {
             node.inline_assignments.fill(-1);
         }
@@ -71,11 +131,11 @@ struct AStarNodeFast {
     }
 
     [[nodiscard]] const int16_t* data() const noexcept {
-        return uses_heap ? heap_assignments.data() : inline_assignments.data();
+        return uses_heap ? heap_assignments : inline_assignments.data();
     }
 
     [[nodiscard]] int16_t* data() noexcept {
-        return uses_heap ? heap_assignments.data() : inline_assignments.data();
+        return uses_heap ? heap_assignments : inline_assignments.data();
     }
 
     [[nodiscard]] int32_t size() const noexcept {

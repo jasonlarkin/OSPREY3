@@ -2,6 +2,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <type_traits>
+
+#if defined(OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS) && (OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS != 0) && defined(__AVX2__)
+#include <immintrin.h>
+#endif
 
 namespace osprey {
 namespace kstar {
@@ -20,6 +25,16 @@ AStarSearchFast<T>::AStarSearchFast(
             rc_offsets_[static_cast<size_t>(pos)] + static_cast<size_t>(num_confs_per_pos_[pos]);
     }
     expand_base_buf_.assign(rc_offsets_[static_cast<size_t>(num_positions_)], T(0));
+    if (num_positions_ <= 0 || num_confs_per_pos_.empty()) {
+        // Degenerate space: no positions -> no A* expansion needed.
+        // Keep internal buffers empty and skip precomputation.
+        expand_child_h_buf_.clear();
+        expand_min_for_rc_buf_.clear();
+        expand_child_g_buf_.clear();
+        undefined_energies_.clear();
+        undefined_prefix_.clear();
+        return;
+    }
     const int32_t max_rc = *std::max_element(num_confs_per_pos_.begin(), num_confs_per_pos_.end());
     expand_child_h_buf_.assign(static_cast<size_t>(max_rc), T(0));
     expand_min_for_rc_buf_.assign(static_cast<size_t>(max_rc), T(0));
@@ -244,11 +259,60 @@ void AStarSearchFast<T>::expandInto(const AStarNodeFast<T>& node, std::vector<AS
         const auto blk_pk = emat_.getPairwiseBlockAssumingPos1Greater(pos1, k);
         for (int32_t rc1 = 0; rc1 < num_confs_per_pos_[pos1]; ++rc1) {
             const T base_e = expand_base_buf_[base_off + static_cast<size_t>(rc1)];
-            const T* row = blk_pk.data + static_cast<size_t>(rc1) * static_cast<size_t>(blk_pk.n2); // length nrc_k
-            for (int32_t rc = 0; rc < nrc_k; ++rc) {
-                const T e = base_e + row[static_cast<size_t>(rc)];
-                if (e < min_for_rc[rc]) {
-                    min_for_rc[rc] = e;
+            // Row is a contiguous span of length nrc_k.
+            const T* row = blk_pk.data + static_cast<size_t>(rc1) * static_cast<size_t>(blk_pk.n2);
+
+            // Hot loop: min-reduction across rc-at-k for the current (pos1, rc1) row.
+            //
+            // Keep semantics identical to the scalar form:
+            // - ordered LT compare (NaN never updates the min)
+            // - update only when candidate improves the current minimum
+#if defined(OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS) && (OSPREY_KSTAR_ENABLE_SIMD_INTRINSICS != 0) && defined(__AVX2__)
+            if constexpr (std::is_same_v<T, double>) {
+                const __m256d vbase = _mm256_set1_pd(base_e);
+                int32_t rc = 0;
+                for (; rc + 3 < nrc_k; rc += 4) {
+                    const __m256d vrow = _mm256_loadu_pd(row + rc);
+                    const __m256d vcand = _mm256_add_pd(vbase, vrow);
+                    const __m256d vcur = _mm256_loadu_pd(min_for_rc + rc);
+                    const __m256d vmask = _mm256_cmp_pd(vcand, vcur, _CMP_LT_OQ);
+                    const __m256d vout = _mm256_blendv_pd(vcur, vcand, vmask);
+                    _mm256_storeu_pd(min_for_rc + rc, vout);
+                }
+                for (; rc < nrc_k; ++rc) {
+                    const T cand = base_e + row[rc];
+                    const T cur = min_for_rc[rc];
+                    if (cand < cur) {
+                        min_for_rc[rc] = cand;
+                    }
+                }
+            } else if constexpr (std::is_same_v<T, float>) {
+                const __m256 vbase = _mm256_set1_ps(base_e);
+                int32_t rc = 0;
+                for (; rc + 7 < nrc_k; rc += 8) {
+                    const __m256 vrow = _mm256_loadu_ps(row + rc);
+                    const __m256 vcand = _mm256_add_ps(vbase, vrow);
+                    const __m256 vcur = _mm256_loadu_ps(min_for_rc + rc);
+                    const __m256 vmask = _mm256_cmp_ps(vcand, vcur, _CMP_LT_OQ);
+                    const __m256 vout = _mm256_blendv_ps(vcur, vcand, vmask);
+                    _mm256_storeu_ps(min_for_rc + rc, vout);
+                }
+                for (; rc < nrc_k; ++rc) {
+                    const T cand = base_e + row[rc];
+                    const T cur = min_for_rc[rc];
+                    if (cand < cur) {
+                        min_for_rc[rc] = cand;
+                    }
+                }
+            } else
+#endif
+            {
+                for (int32_t rc = 0; rc < nrc_k; ++rc) {
+                    const T cand = base_e + row[rc];
+                    const T cur = min_for_rc[rc];
+                    if (cand < cur) {
+                        min_for_rc[rc] = cand;
+                    }
                 }
             }
         }
@@ -273,12 +337,14 @@ void AStarSearchFast<T>::expandInto(const AStarNodeFast<T>& node, std::vector<AS
     }
 
     for (int32_t rc = 0; rc < nrc_k; ++rc) {
-        auto child = node.assign(k, static_cast<int16_t>(rc));
-
+        // Build directly into the output vector to avoid an extra move/copy of the node payload.
+        out.emplace_back(node);
+        auto& child = out.back();
+        child.data()[k] = static_cast<int16_t>(rc);
+        child.level = node.level + 1;
         child.g_score = child_g[rc];
         child.h_score = child_h[rc];
         child.f_score = child.g_score + child.h_score;
-        out.push_back(child);
     }
 }
 
