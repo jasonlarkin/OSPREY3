@@ -27,7 +27,7 @@ Interfaces:
   - `src/bond_*.cpp`, `src/angle_*.cpp`, `src/dihedral_*.cpp`, `src/improper_*.cpp`
   - `src/fix_*.cpp` (time integration, constraints, thermostats, etc.)
   - `src/compute_*.cpp` (observables)
-- **Key pattern**: family of “Style” base classes + factory/registration macros + runtime selection via input script keywords.
+- **Key pattern**: family of **Style** base classes + factory/registration macros + runtime selection via input script keywords.
 
 ### GROMACS
 
@@ -200,12 +200,12 @@ What abstract interface must expose.
 - **Best-first / A\***: needs admissible `LB(state)` or heuristic + consistent cost semantics
 - **Branch-and-bound**: needs `LB(partial_state)` and tight incremental bounds
 - **Beam search**: needs neighborhood generation + ranking; no correctness guarantees
-- **MCTS / stochastic search**: needs rollout policy hooks; benefits from cheap `ΔE`
+- **MCTS / stochastic search**: needs rollout policy hooks; benefits from cheap $\Delta$`E`
 - **Local search (SA / tabu)**: needs move operators and fast evaluation; often continuous refinement steps
-- **Hybrid discrete-continuous**: needs “discrete assignment” + “continuous relax/minimize” as first-class moves
+- **Hybrid discrete-continuous**: needs **discrete assignment** + **continuous relax/minimize** as first-class moves
 - **MILP/ILP/QP**: needs a representation extractable to linear/quadratic forms (where possible)
 
-## Integration pattern checklist (what to extract while reading)
+## Integration pattern checklist
 
 - **State representation**: explicit DOFs vs Cartesian; copy cost; hashing/equality; partial states
 - **Move operators**: locality metadata; deterministic ordering; composability
