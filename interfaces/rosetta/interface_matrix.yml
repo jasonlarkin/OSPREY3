@@ -1,0 +1,71 @@
+project:
+  name: "Rosetta"
+  url: "https://www.rosettacommons.org/"
+  repo: "https://github.com/RosettaCommons/rosetta"
+  language: "C++ (core) + scripts/tools"
+  license: ""
+
+system_model:
+  core_types:
+    - "Pose"
+    - "Mover"
+    - "ScoreFunction"
+  coords: "cartesian (Pose-centric), with internal coordinate constructs in submodules"
+  constraints: "supported via constraint score terms and protocol-level enforcement"
+
+energy_model:
+  composition: "ScoreFunction composes weighted score terms; protocol/config selects which terms are active."
+  term_api: "EnergyMethod (score term plugin) + supporting evaluation plumbing."
+  supports:
+    energy: true
+    forces: false
+    gradients: false
+    hessians: false
+    delta_energy: false
+    lower_bounds: false
+  caching_and_context: "score evaluation uses caches attached to Pose and scoring context; details are internal."
+  backends:
+    - "CPU (typical); specialized accelerators exist in limited areas"
+
+search_or_sampling:
+  state_representation: "Pose is the primary mutable state passed through protocols."
+  move_operators:
+    - "Mover applies a transformation to Pose (packing, relax, perturbation, docking, etc.)"
+  objective: "ScoreFunction value (weighted energy terms) + protocol-specific acceptance criteria"
+  algorithms:
+    - "protocol-driven sampling"
+    - "local optimization/relaxation"
+    - "stochastic search variants"
+  determinism_controls: "seeded RNG and protocol configuration; determinism is protocol- and platform-dependent"
+
+extensibility:
+  plugin_model: "extend by adding new Mover classes and new score terms (EnergyMethods); wired into protocols/config."
+  user_scripting: "XML protocol framework and command-line options (varies by application)"
+  stable_api_surface: "public headers for core/protocol interfaces; large internal surface"
+
+code_entrypoints:
+  - path: "rosetta/docs/github/page.txt"
+    why: "local snapshot of upstream repo landing page for grep/navigation"
+  - path: "rosetta/docs/github_tree/protocols/page.txt"
+    why: "local snapshot of protocols directory listing (when docs site is unreachable)"
+  - path: "rosetta/docs/github_tree/core_scoring/page.txt"
+    why: "local snapshot of scoring directory listing (when docs site is unreachable)"
+  - path: "rosetta/docs/github_tree/core_pose/page.txt"
+    why: "local snapshot of pose directory listing (when docs site is unreachable)"
+  - path: "rosetta/docs/raw_headers/Mover_hh/page.txt"
+    why: "local snapshot of Mover interface header"
+  - path: "rosetta/docs/raw_headers/ScoreFunction_hh/page.txt"
+    why: "local snapshot of ScoreFunction interface header"
+  - path: "rosetta/docs/raw_headers/Pose_hh/page.txt"
+    why: "local snapshot of Pose interface header"
+  - path: "rosetta/docs/raw_headers/EnergyMethod_hh/page.txt"
+    why: "local snapshot of EnergyMethod (score term) interface header"
+  - path: "rosetta/docs/raw_headers/EnergyMethodCreator_hh/page.txt"
+    why: "local snapshot of EnergyMethodCreator (term factory/registration) interface header"
+  - path: "rosetta/source/src/protocols/"
+    why: "protocols and Mover implementations (when repo is cloned)"
+  - path: "rosetta/source/src/core/scoring/"
+    why: "ScoreFunction and scoring term plumbing (when repo is cloned)"
+  - path: "rosetta/source/src/core/pose/"
+    why: "Pose state model (when repo is cloned)"
+
